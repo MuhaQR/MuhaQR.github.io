@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="800" height="100"
+     viewBox="0 0 800 100"
+     >
+  <defs>
+    <style type="text/css"><![CDATA[
+      @font-face {
+        font-family: 'STCForwardBold';
+        src: url('https://cdn.jsdelivr.net/gh/MuhaQR/MuhaQR.github.io@main/STCForward-Bold.ttf') format('truetype');
+      }
+      text#clock {
+        font-family: 'STCForwardBold', sans-serif;
+        font-size: 64px;
+        fill: white;
+      }
+      /* ensure background stays transparent */
+      svg { background: transparent; }
+    ]]></style>
+  </defs>
+
+  <!-- placeholder text -->
+  <text id="clock" x="0" y="75">Loading…</text>
+
+  <!-- embedded JS to tick every second -->
+  <script type="application/ecmascript"><![CDATA[
+    function update() {
+      var now = new Date();
+      var dOpts = { day:'2-digit', month:'short', year:'numeric' };
+      var tOpts = { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false };
+      var txt = now.toLocaleDateString('en-GB', dOpts)
+              + ' '
+              + now.toLocaleTimeString('en-GB', tOpts);
+      document.getElementById('clock').textContent = txt;
+    }
+    setInterval(update, 1000);
+    update();
+  ]]></script>
+</svg>
