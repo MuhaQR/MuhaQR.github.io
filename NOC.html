@@ -1,0 +1,1276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Global Network — Subsea Reachability</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+<style>
+  :root{
+    /* center3.com palette: deep purple-black bg, royal purple, coral accent */
+    --bg:#0a0313; --panel-b:rgba(165,78,225,0.22);
+    --deep:#3b0f66; --sea:#1bced8; --coral:#ff375e; --purple:#4f008c; --moon:#a54ee1; --sun:#ffdd40;
+    --text:#f2ecf7; --dim:#a99fc0; --dimmer:#6f6488;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;background:var(--bg);overflow:hidden;
+    font-family:'Inter',sans-serif;color:var(--text);}
+  #app{position:relative;width:100vw;height:100vh;}
+  canvas{display:block;}
+
+  #topbar{position:absolute;top:0;left:0;right:0;z-index:20;display:flex;
+    align-items:flex-start;justify-content:space-between;padding:20px 28px;pointer-events:none;}
+  .brand{display:flex;align-items:center;gap:10px;}
+  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--coral);
+    box-shadow:0 0 12px var(--coral);animation:pd 2.2s ease-in-out infinite;}
+  .brand h1{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:19px;
+    letter-spacing:.02em;margin:0;}
+  @keyframes pd{0%,100%{opacity:1}50%{opacity:.35}}
+  #clock{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--dim);text-align:right;}
+  #clock .big{color:var(--text);font-size:13px;}
+  #geoStatus{color:var(--sea);margin-top:3px;transition:opacity .8s;}
+
+  #sidebar{position:absolute;top:70px;left:18px;width:344px;z-index:15;
+    max-height:calc(100vh - 92px);
+    background:linear-gradient(165deg,rgba(59,15,102,.58),rgba(10,3,19,.90) 70%);
+    border:1px solid var(--panel-b);border-radius:18px;
+    box-shadow:0 24px 60px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.02) inset;
+    backdrop-filter:blur(16px) saturate(1.1);
+    padding:18px 16px;overflow-y:auto;}
+  #sidebar::-webkit-scrollbar{width:5px;}
+  #sidebar::-webkit-scrollbar-thumb{background:var(--panel-b);border-radius:4px;}
+
+  .section{margin-bottom:20px;}
+  .section-title{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--dimmer);margin-bottom:9px;
+    display:flex;justify-content:space-between;align-items:center;}
+  .section-title .count{color:var(--dim);}
+
+  .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+  .stat{background:rgba(79,0,140,.20);border:1px solid rgba(165,78,225,.28);border-radius:12px;padding:10px 11px;}
+  .stat .v{font-family:'Space Grotesk',sans-serif;font-size:20px;font-weight:600;color:var(--coral);}
+  .stat .v.gold{color:var(--moon);}
+  .stat .l{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--dimmer);
+    text-transform:uppercase;letter-spacing:.08em;margin-top:2px;}
+
+  /* ===== left capacity panel (vertical KPI stack) ===== */
+  #capStrip{position:absolute;left:378px;top:70px;width:238px;z-index:15;
+    display:flex;flex-direction:column;gap:12px;max-height:calc(100vh - 160px);overflow-y:auto;padding-right:2px;}
+  #capStrip::-webkit-scrollbar{width:4px;} #capStrip::-webkit-scrollbar-thumb{background:var(--panel-b);border-radius:4px;}
+  .capcard{background:linear-gradient(165deg,rgba(59,15,102,.55),rgba(10,3,19,.9) 75%);
+    border:1px solid var(--panel-b);border-radius:16px;padding:12px 14px;
+    box-shadow:0 18px 44px rgba(0,0,0,.5);backdrop-filter:blur(14px) saturate(1.1);
+    display:flex;flex-direction:column;gap:8px;min-width:0;}
+  .capcard.row{flex-direction:row;align-items:center;gap:14px;}
+  .capinfo{display:flex;flex-direction:column;gap:4px;min-width:0;}
+  .capttl{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--dimmer);}
+  .capbig{display:flex;align-items:baseline;gap:5px;}
+  .capbig b{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:28px;line-height:1;color:var(--sea);}
+  .capbig em{font-style:normal;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--dim);}
+  .capbig.warn b{color:var(--coral);}
+  .capsub{font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--dim);}
+  .capsub b{color:var(--text);}
+  .capstack{display:flex;gap:2px;height:10px;border-radius:5px;overflow:hidden;background:rgba(255,255,255,.05);}
+  .capstack span{display:block;height:100%;transition:width .5s ease;border-radius:4px;}
+  .capstack .cs-w{background:linear-gradient(90deg,#1bced8,#28d1db);}
+  .capstack .cs-e{background:linear-gradient(90deg,#8f4fd6,#b06bec);}
+  .capmeter{height:10px;border-radius:5px;overflow:hidden;background:rgba(255,255,255,.05);}
+  .capmeter span{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,#ff6a39,#ff375e);transition:width .5s ease;}
+  .capdonut,.capgauge{flex:0 0 auto;}
+  .capdonut svg{width:72px;height:72px;display:block;}
+  .capgauge svg{width:78px;height:78px;display:block;}
+  .capdonut .d-val,.capgauge .g-val{font-family:'Space Grotesk',sans-serif;font-weight:600;fill:var(--text);}
+  .capdonut .d-val{font-size:16px;} .capgauge .g-val{font-size:15px;}
+  .capdonut .d-lab,.capgauge .g-lab{font-family:'IBM Plex Mono',monospace;font-size:6px;letter-spacing:.06em;
+    fill:var(--dimmer);text-transform:uppercase;}
+  #capWArc,#capEArc,#capArc{transition:stroke-dasharray .5s ease,stroke .3s;}
+  #app #legend{left:378px;bottom:20px;max-width:calc(100vw - 786px);}
+  @media (max-width:1240px){ #app #legend{max-width:calc(100vw - 420px);} }
+  @media (max-width:1100px){ #capStrip{display:none;} #app #legend{left:362px;} }
+
+  .toggle-row{display:flex;align-items:center;gap:9px;padding:6px 0;cursor:pointer;
+    user-select:none;font-size:13px;}
+  .toggle-row:hover{color:var(--coral);}
+  .toggle-row input{display:none;}
+  .checkbox{width:15px;height:15px;border-radius:4px;border:1.5px solid var(--dimmer);
+    flex:0 0 auto;position:relative;transition:.15s;}
+  .toggle-row input:checked + .checkbox{background:var(--coral);border-color:var(--coral);}
+  .toggle-row input:checked + .checkbox::after{content:'';position:absolute;left:4px;top:1px;
+    width:4px;height:8px;border:solid #0a0313;border-width:0 2px 2px 0;transform:rotate(45deg);}
+  .toggle-row .label{flex:1;}
+  .toggle-row .n{color:var(--dimmer);font-family:'IBM Plex Mono',monospace;font-size:11px;}
+
+  .cable-item,.ctry-item{display:flex;align-items:center;gap:9px;padding:7px 8px;
+    border-radius:8px;cursor:pointer;transition:background .15s;}
+  .cable-item:hover,.ctry-item:hover{background:rgba(255,255,255,.05);}
+  .cable-item.focused{background:rgba(255,55,94,.12);}
+  .bar{width:3px;height:22px;border-radius:2px;flex:0 0 auto;}
+  .sw{width:9px;height:9px;border-radius:2px;flex:0 0 auto;}
+  .info{flex:1;min-width:0;}
+  .name{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .meta{font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--dimmer);}
+  .badge{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--dim);
+    background:rgba(255,255,255,.06);border-radius:10px;padding:2px 7px;}
+  .ctry-item.home .name{color:var(--coral);font-weight:600;}
+
+  #cableFilter{width:100%;margin-bottom:9px;padding:8px 11px;border-radius:9px;
+    background:rgba(10,3,19,.55);border:1px solid var(--panel-b);color:var(--text);
+    font-family:'Inter',sans-serif;font-size:12.5px;outline:none;transition:border-color .15s,box-shadow .15s;}
+  #cableFilter::placeholder{color:var(--dimmer);}
+  #cableFilter:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,55,94,.16);}
+  #cableList{max-height:290px;overflow-y:auto;padding-right:3px;}
+  #ctryList{max-height:260px;overflow-y:auto;padding-right:3px;}
+  #cableList::-webkit-scrollbar,#ctryList::-webkit-scrollbar{width:4px;}
+  #cableList::-webkit-scrollbar-thumb,#ctryList::-webkit-scrollbar-thumb{background:var(--panel-b);}
+
+  #clearBtn{width:100%;margin-top:8px;padding:8px;border-radius:9px;cursor:pointer;
+    background:rgba(255,55,94,.14);border:1px solid rgba(255,55,94,.45);color:var(--coral);
+    font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.06em;
+    text-transform:uppercase;display:none;}
+  #clearBtn.show{display:block;}
+  #clearBtn:hover{background:rgba(255,55,94,.24);}
+
+  #tooltip{position:absolute;z-index:30;pointer-events:none;background:rgba(20,8,36,.97);
+    border:1px solid rgba(255,55,94,.42);border-radius:12px;padding:11px 14px;
+    min-width:190px;box-shadow:0 8px 30px rgba(0,0,0,.55);opacity:0;
+    transform:translateY(4px);transition:opacity .12s,transform .12s;}
+  #tooltip.show{opacity:1;transform:translateY(0);}
+  #tooltip .t-type{font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;
+    letter-spacing:.1em;color:var(--coral);margin-bottom:5px;}
+  #tooltip .t-title{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14px;margin-bottom:6px;}
+  #tooltip .t-row{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--dim);
+    line-height:1.55;}
+  #tooltip .t-row b{color:var(--text);font-weight:500;}
+
+  #legend{position:absolute;bottom:20px;left:362px;z-index:15;display:flex;gap:16px;
+    flex-wrap:wrap;max-width:calc(100vw - 400px);
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--dim);align-items:center;
+    background:rgba(20,8,36,.72);border:1px solid var(--panel-b);border-radius:12px;
+    padding:9px 15px;backdrop-filter:blur(10px);}
+  #legend .item{display:flex;align-items:center;gap:6px;}
+  #legend .d{width:8px;height:8px;border-radius:2px;box-shadow:0 0 6px currentColor;}
+  #hint{position:absolute;bottom:20px;right:20px;z-index:15;font-family:'IBM Plex Mono',monospace;
+    font-size:10px;color:var(--dimmer);text-align:right;line-height:1.6;}
+
+  @media (max-width:900px){
+    #sidebar{left:10px;right:10px;width:auto;top:62px;max-height:58vh;padding:14px;border-radius:14px;}
+    #legend,#hint{display:none;}
+  }
+
+  /* ===== right-side panels: status board + chokepoint monitor ===== */
+  .rpanel{position:absolute;right:18px;width:366px;z-index:15;display:flex;flex-direction:column;
+    background:linear-gradient(165deg,rgba(59,15,102,.58),rgba(10,3,19,.90) 72%);
+    border:1px solid var(--panel-b);border-radius:18px;overflow:hidden;
+    box-shadow:0 24px 60px rgba(0,0,0,.55);backdrop-filter:blur(16px) saturate(1.1);padding:14px;}
+  #statusPanel{top:70px;height:33vh;min-height:214px;}
+  #chokePanel{top:calc(70px + 33vh + 14px);bottom:18px;}
+  .rp-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:11px;gap:8px;}
+  .rp-title{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px;}
+  .rp-title::before{content:'';width:8px;height:8px;border-radius:2px;background:var(--coral);box-shadow:0 0 8px var(--coral);}
+  #chokePanel .rp-title::before{background:var(--sun);box-shadow:0 0 8px var(--sun);}
+  .statuspill{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+    padding:4px 9px 4px 8px;border-radius:20px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;}
+  .statuspill::before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor;
+    box-shadow:0 0 8px currentColor;animation:pd 2.2s ease-in-out infinite;}
+  .statuspill.ok{color:#00c48c;background:rgba(0,196,140,.12);border:1px solid rgba(0,196,140,.4);}
+  .statuspill.degraded{color:#ffce3a;background:rgba(255,206,58,.12);border:1px solid rgba(255,206,58,.4);}
+  .statuspill.critical{color:#ff4d6d;background:rgba(255,55,94,.14);border:1px solid rgba(255,55,94,.45);}
+  .rp-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:11px;}
+  .rp-metrics>div{background:rgba(79,0,140,.20);border:1px solid rgba(165,78,225,.24);border-radius:10px;padding:7px 9px;}
+  .rp-metrics b{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:17px;display:block;color:var(--text);}
+  .rp-metrics span{font-family:'IBM Plex Mono',monospace;font-size:7.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--dimmer);}
+  .faultlist{overflow-y:auto;flex:1;padding-right:4px;display:flex;flex-direction:column;gap:7px;}
+  .faultlist::-webkit-scrollbar{width:4px;}.faultlist::-webkit-scrollbar-thumb{background:var(--panel-b);border-radius:4px;}
+  .fault{display:flex;gap:9px;padding:8px 9px;border-radius:10px;background:rgba(255,255,255,.03);
+    border:1px solid var(--panel-b);border-left-width:3px;}
+  .fault.critical{border-left-color:#ff375e;}.fault.major{border-left-color:#ff6a39;}
+  .fault.minor{border-left-color:#ffdd40;}.fault.resolved{border-left-color:#00c48c;opacity:.6;}
+  .fault .fmain{flex:1;min-width:0;}
+  .fault .fcable{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;display:flex;align-items:center;gap:7px;}
+  .fault .ftag{font-family:'IBM Plex Mono',monospace;font-size:7.5px;letter-spacing:.06em;padding:1px 5px;border-radius:9px;
+    background:rgba(255,255,255,.08);color:var(--dim);}
+  .fault.critical .ftag{background:rgba(255,55,94,.16);color:#ff8098;}
+  .fault.major .ftag{background:rgba(255,106,57,.16);color:#ff9d78;}
+  .fault.minor .ftag{background:rgba(255,221,64,.14);color:#ffe58a;}
+  .fault.resolved .ftag{background:rgba(0,196,140,.14);color:#4fd8ac;}
+  .fault .fdesc{font-size:11px;color:var(--dim);margin-top:2px;}
+  .fault .floc{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--dimmer);margin-top:3px;}
+  .fault .fmeta{text-align:right;font-family:'IBM Plex Mono',monospace;font-size:8.5px;color:var(--dim);white-space:nowrap;line-height:1.5;}
+  .fault .fst{color:var(--dimmer);}
+  .rp-foot{font-family:'IBM Plex Mono',monospace;font-size:7.5px;color:var(--dimmer);margin-top:8px;letter-spacing:.04em;}
+  /* choke tabs + map */
+  .tabbar{display:flex;gap:4px;margin-bottom:10px;}
+  .tab{flex:1;padding:6px 3px;border-radius:8px;cursor:pointer;background:rgba(255,255,255,.04);
+    border:1px solid var(--panel-b);color:var(--dim);font-family:'IBM Plex Mono',monospace;font-size:9px;
+    letter-spacing:.02em;transition:.15s;}
+  .tab:hover{color:var(--text);}
+  .tab.active{background:rgba(255,221,64,.14);border-color:rgba(255,221,64,.42);color:#ffe58a;}
+  .choke-body{flex:1;display:flex;flex-direction:column;min-height:0;}
+  .choke-blurb{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--dimmer);margin-bottom:8px;line-height:1.4;}
+  .choke-map{flex:1;min-height:120px;border-radius:12px;overflow:hidden;
+    background:radial-gradient(120% 120% at 50% 0%,#170d2b,#0a0313);border:1px solid var(--panel-b);}
+  .choke-map svg{width:100%;height:100%;display:block;}
+  .choke-legend{display:flex;gap:12px;margin-top:8px;flex-wrap:wrap;
+    font-family:'IBM Plex Mono',monospace;font-size:8.5px;color:var(--dim);}
+  .choke-legend i{display:inline-block;width:11px;height:3px;margin-right:4px;vertical-align:middle;border-radius:1px;}
+  .choke-cables{margin-top:8px;max-height:98px;overflow-y:auto;display:flex;flex-direction:column;gap:5px;padding-right:4px;}
+  .choke-cables::-webkit-scrollbar{width:4px;}.choke-cables::-webkit-scrollbar-thumb{background:var(--panel-b);border-radius:4px;}
+  .ccbl{display:flex;align-items:center;gap:8px;font-size:11px;}
+  .ccbl .cln{width:16px;height:0;border-top-width:2px;border-top-style:solid;flex:0 0 auto;}
+  .ccbl .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .ccbl .role{color:var(--dimmer);font-family:'IBM Plex Mono',monospace;font-size:8.5px;text-transform:uppercase;}
+  .ccbl .cst{font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:.04em;min-width:54px;text-align:right;}
+  .ecbl{display:flex;align-items:center;gap:8px;font-size:11px;}
+  .ecbl .cdot{width:8px;height:8px;border-radius:50%;flex:0 0 auto;}
+  .ecbl .nm{flex:1;min-width:46px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:11.5px;}
+  .ecbl .pp{font-family:'IBM Plex Mono',monospace;font-size:8.5px;white-space:nowrap;}
+  .ecbl .pp b{color:var(--dimmer);font-weight:500;margin-right:2px;}
+  .choke-cables.egypt .pp{min-width:96px;text-align:left;}
+  #hint{display:none;}
+  #legend{max-width:calc(100vw - 820px);}
+  @media (max-width:1240px){ #statusPanel,#chokePanel{display:none;} #legend{max-width:calc(100vw - 400px);} }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <div class="brand"><span class="dot"></span><h1>GLOBAL NETWORK</h1></div>
+    <div id="clock"><div class="big" id="clockTime">--:--:--</div><div id="clockDate"></div>
+      <div id="geoStatus">loading geography…</div>
+      <div id="routeStatus" style="color:#ff375e;transition:opacity .8s;">fetching surveyed routes…</div></div>
+  </div>
+
+  <aside id="sidebar">
+    <div class="section">
+      <div class="section-title">Reachability</div>
+      <div class="stat-grid">
+        <div class="stat"><div class="v" id="sCountries">–</div><div class="l">Countries reached</div></div>
+        <div class="stat"><div class="v" id="sStations">–</div><div class="l">Landing stations</div></div>
+        <div class="stat"><div class="v gold" id="sCables">–</div><div class="l">Cable systems</div></div>
+        <div class="stat"><div class="v gold" id="sKm">–</div><div class="l">Route km</div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Layers</div>
+      <label class="toggle-row"><input type="checkbox" id="chkCables" checked><span class="checkbox"></span>
+        <span class="label">Cable routes</span><span class="n" id="nCables">0</span></label>
+      <label class="toggle-row"><input type="checkbox" id="chkStations" checked><span class="checkbox"></span>
+        <span class="label">Landing stations</span><span class="n" id="nStations">0</span></label>
+      <label class="toggle-row"><input type="checkbox" id="chkFill" checked><span class="checkbox"></span>
+        <span class="label">Country reachability fill</span></label>
+      <label class="toggle-row"><input type="checkbox" id="chkLabels"><span class="checkbox"></span>
+        <span class="label">Auto-rotate</span></label>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Cable filter <span class="count" id="cableCount"></span></div>
+      <input id="cableFilter" type="text" placeholder="Search cable systems…" autocomplete="off" spellcheck="false">
+      <div id="cableList"></div>
+      <button id="clearBtn">Clear selection · show all</button>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Countries reached <span class="count" id="ctryCount"></span></div>
+      <div id="ctryList"></div>
+    </div>
+  </aside>
+
+  <section id="statusPanel" class="rpanel">
+    <div class="rp-head">
+      <div class="rp-title">Network Status</div>
+      <div id="netStatus" class="statuspill ok">OPERATIONAL</div>
+    </div>
+    <div class="rp-metrics">
+      <div><b id="fActive">0</b><span>Active faults</span></div>
+      <div><b id="fCables">0</b><span>Cables affected</span></div>
+      <div><b id="fAvail">100%</b><span>Availability</span></div>
+    </div>
+    <div id="faultList" class="faultlist"></div>
+    <div class="rp-foot">live fault register · sample telemetry</div>
+  </section>
+
+  <section id="chokePanel" class="rpanel">
+    <div class="rp-head"><div class="rp-title">Chokepoint Monitor</div></div>
+    <div class="tabbar" id="chokeTabs">
+      <button class="tab active" data-k="egypt">Egypt Crossing</button>
+      <button class="tab" data-k="babelmandeb">Bab al-Mandab</button>
+      <button class="tab" data-k="hormuz">Hormuz</button>
+    </div>
+    <div id="chokeBody" class="choke-body"></div>
+  </section>
+
+  <div id="capStrip">
+    <div class="capcard">
+      <div class="capttl">Total Capacity</div>
+      <div class="capbig"><b id="capTotal">70</b><em>Tbps</em></div>
+      <div class="capstack"><span class="cs-w" id="capTotalW" style="width:57%"></span><span class="cs-e" id="capTotalE" style="width:43%"></span></div>
+      <div class="capsub" id="capScope">whole network</div>
+    </div>
+    <div class="capcard row">
+      <div class="capdonut"><svg viewBox="0 0 72 72">
+        <circle cx="36" cy="36" r="27" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="7"/>
+        <circle id="capWArc" cx="36" cy="36" r="27" fill="none" stroke="#28d1db" stroke-width="7" stroke-linecap="round" pathLength="100" stroke-dasharray="57 100" transform="rotate(-90 36 36)"/>
+        <text x="36" y="34" text-anchor="middle" class="d-val" id="capWest">40</text>
+        <text x="36" y="45" text-anchor="middle" class="d-lab">Tbps</text>
+      </svg></div>
+      <div class="capinfo"><div class="capttl">Westbound</div><div class="capsub"><b id="capWpct">57%</b> of total</div></div>
+    </div>
+    <div class="capcard row">
+      <div class="capdonut"><svg viewBox="0 0 72 72">
+        <circle cx="36" cy="36" r="27" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="7"/>
+        <circle id="capEArc" cx="36" cy="36" r="27" fill="none" stroke="#b06bec" stroke-width="7" stroke-linecap="round" pathLength="100" stroke-dasharray="43 100" transform="rotate(-90 36 36)"/>
+        <text x="36" y="34" text-anchor="middle" class="d-val" id="capEast">30</text>
+        <text x="36" y="45" text-anchor="middle" class="d-lab">Tbps</text>
+      </svg></div>
+      <div class="capinfo"><div class="capttl">Eastbound</div><div class="capsub"><b id="capEpct">43%</b> of total</div></div>
+    </div>
+    <div class="capcard">
+      <div class="capttl">Impacted</div>
+      <div class="capbig warn"><b id="capImpact">10.1</b><em>Tbps</em></div>
+      <div class="capmeter"><span id="capImpactBar" style="width:14%"></span></div>
+      <div class="capsub"><b id="capImpactPct">14%</b> of total</div>
+    </div>
+    <div class="capcard row">
+      <div class="capgauge"><svg viewBox="0 0 78 78">
+        <circle cx="39" cy="39" r="30" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="7"/>
+        <circle id="capArc" cx="39" cy="39" r="30" fill="none" stroke="#00c48c" stroke-width="7" stroke-linecap="round" pathLength="100" stroke-dasharray="100 100" transform="rotate(-90 39 39)"/>
+        <text x="39" y="42" text-anchor="middle" class="g-val" id="capAvail">100%</text>
+      </svg></div>
+      <div class="capinfo"><div class="capttl">Availability</div><div class="capsub">uptime</div></div>
+    </div>
+  </div>
+
+  <div id="legend"></div>
+  <div id="hint">drag to rotate · scroll to zoom<br>click a cable to isolate its reachability<br><span style="color:#ffdd40">yellow</span> = overland segment</div>
+  <div id="tooltip"></div>
+</div>
+
+<script>
+const CABLE_DATA={"meta":{"title":"Subsea cable systems \u2014 reachability dataset","description":"Landing points for the 13 cable systems in scope. Coordinates are city/landing-station level (approximate to a few km), suitable for globe and map visualisation. Country codes are ISO 3166-1 alpha-2 and numeric (numeric matches Natural Earth / world-atlas feature ids).","generated":"2026-07-23","sources":["Wikipedia cable system articles (SEA-ME-WE 4, SEA-ME-WE 5, EIG, MENA, EASSy, 2Africa)","TeleGeography Submarine Cable Map","submarinenetworks.com system pages","center3 / stc press releases (SVC, EMC West)","SubTel Forum, Capacity Media, Telecom Egypt / SubCom announcements (IEX-IAX)"],"caveats":["Routes are drawn as great-circle arcs between ordered landing points, not surveyed seabed paths.","Some branch landings on large systems (notably 2Africa's 46 stations) are represented by a selected subset.","Terrestrial crossings (e.g. trans-Egypt Alexandria/Suez, KSA overland) are shown as arc segments."],"geometry":"Each cable is a list of segments with explicit 'coords' ([lon,lat] polylines). type='subsea' routes follow sea corridors and never cross land; type='terrestrial' marks the real overland legs (trans-Egypt crossings, EMC West's Levant crossing). 'tg_match' matches TeleGeography cable-geo.json features for surveyed route geometry.","live_geometry_source":"https://www.submarinecablemap.com/api/v3/cable/cable-geo.json","palette":{"source":"stc brand guidelines (Interbrand) \u2014 center3 is an stc group company","primary":{"purple":"#4f008c","coral":"#ff375e","air":"#ffffff"},"secondary":{"sun":"#ffdd40","sunset":"#ff6a39","oasis":"#00c48c","sea":"#1bced8","moon":"#a54ee1","silver":"#8e9aa0","onyx":"#1d252d"},"usage":{"home_country":"#ff375e","terrestrial_segment":"#ffdd40","not_reached":"#8e9aa0","atmosphere":"#a54ee1","background":"#1d252d"}}},"regions":{"middleeast":{"label":"Middle East","color":"#1bced8"},"europe":{"label":"Europe","color":"#a54ee1"},"africa":{"label":"Africa","color":"#ffdd40"},"southasia":{"label":"South Asia","color":"#ff6a39"},"seasia":{"label":"SE Asia","color":"#00c48c"}},"countries":{"SA":{"name":"Saudi Arabia","iso_n":682,"region":"middleeast","home":true},"AE":{"name":"United Arab Emirates","iso_n":784,"region":"middleeast"},"OM":{"name":"Oman","iso_n":512,"region":"middleeast"},"QA":{"name":"Qatar","iso_n":634,"region":"middleeast"},"BH":{"name":"Bahrain","iso_n":48,"region":"middleeast"},"KW":{"name":"Kuwait","iso_n":414,"region":"middleeast"},"IQ":{"name":"Iraq","iso_n":368,"region":"middleeast"},"IR":{"name":"Iran","iso_n":364,"region":"middleeast"},"YE":{"name":"Yemen","iso_n":887,"region":"middleeast"},"LB":{"name":"Lebanon","iso_n":422,"region":"middleeast"},"TR":{"name":"Turkey","iso_n":792,"region":"middleeast"},"CY":{"name":"Cyprus","iso_n":196,"region":"europe"},"FR":{"name":"France","iso_n":250,"region":"europe"},"IT":{"name":"Italy","iso_n":380,"region":"europe"},"GR":{"name":"Greece","iso_n":300,"region":"europe"},"PT":{"name":"Portugal","iso_n":620,"region":"europe"},"ES":{"name":"Spain","iso_n":724,"region":"europe"},"GB":{"name":"United Kingdom","iso_n":826,"region":"europe"},"EG":{"name":"Egypt","iso_n":818,"region":"africa"},"LY":{"name":"Libya","iso_n":434,"region":"africa"},"TN":{"name":"Tunisia","iso_n":788,"region":"africa"},"DZ":{"name":"Algeria","iso_n":12,"region":"africa"},"SD":{"name":"Sudan","iso_n":729,"region":"africa"},"DJ":{"name":"Djibouti","iso_n":262,"region":"africa"},"SO":{"name":"Somalia","iso_n":706,"region":"africa"},"KE":{"name":"Kenya","iso_n":404,"region":"africa"},"TZ":{"name":"Tanzania","iso_n":834,"region":"africa"},"MZ":{"name":"Mozambique","iso_n":508,"region":"africa"},"ZA":{"name":"South Africa","iso_n":710,"region":"africa"},"MG":{"name":"Madagascar","iso_n":450,"region":"africa"},"KM":{"name":"Comoros","iso_n":174,"region":"africa"},"NG":{"name":"Nigeria","iso_n":566,"region":"africa"},"GH":{"name":"Ghana","iso_n":288,"region":"africa"},"SN":{"name":"Senegal","iso_n":686,"region":"africa"},"IN":{"name":"India","iso_n":356,"region":"southasia"},"PK":{"name":"Pakistan","iso_n":586,"region":"southasia"},"LK":{"name":"Sri Lanka","iso_n":144,"region":"southasia"},"BD":{"name":"Bangladesh","iso_n":50,"region":"southasia"},"MM":{"name":"Myanmar","iso_n":104,"region":"seasia"},"TH":{"name":"Thailand","iso_n":764,"region":"seasia"},"MY":{"name":"Malaysia","iso_n":458,"region":"seasia"},"ID":{"name":"Indonesia","iso_n":360,"region":"seasia"},"SG":{"name":"Singapore","iso_n":702,"region":"seasia"}},"cables":[{"id":"mena","name":"MENA","full_name":"Middle East North Africa Cable System","length_km":9100,"rfs":2014,"owner":"Telecom Egypt","landings":[{"station":"Mazara del Vallo","cc":"IT","lon":12.6,"lat":37.65},{"station":"Chania (Crete)","cc":"GR","lon":24.02,"lat":35.51},{"station":"Alexandria","cc":"EG","lon":29.92,"lat":31.2},{"station":"Zafarana","cc":"EG","lon":32.65,"lat":29.1},{"station":"Jeddah","cc":"SA","lon":39.17,"lat":21.54},{"station":"Muscat","cc":"OM","lon":58.54,"lat":23.61},{"station":"Mumbai","cc":"IN","lon":72.87,"lat":19.08}],"tg_match":["gbicsmena","middle-east-north-africa","mena-cable"],"segments":[{"type":"subsea","from":"Mazara del Vallo","to":"Chania (Crete)","coords":[[12.6,37.65],[14.2,36.7],[18.0,35.8],[21.5,35.4],[24.02,35.51]]},{"type":"subsea","from":"Chania (Crete)","to":"Alexandria","coords":[[24.02,35.51],[25.0,34.4],[27.2,33.0],[29.0,31.8],[29.92,31.2]]},{"type":"terrestrial","from":"Alexandria","to":"Zafarana","coords":[[29.92,31.2],[32.65,29.1]]},{"type":"subsea","from":"Zafarana","to":"Jeddah","coords":[[32.65,29.1],[32.9,28.9],[33.6,28.0],[34.6,27.2],[35.8,25.4],[37.4,23.2],[39.17,21.54]]},{"type":"subsea","from":"Jeddah","to":"Muscat","coords":[[39.17,21.54],[38.6,19.5],[40.2,16.8],[42.6,13.9],[43.4,12.5],[46.0,12.2],[50.0,12.0],[53.0,12.4],[55.5,15.0],[58.2,18.2],[60.0,20.6],[60.0,22.6],[59.4,23.4],[58.54,23.61]]},{"type":"subsea","from":"Muscat","to":"Mumbai","coords":[[58.54,23.61],[59.2,23.0],[62.0,22.2],[66.0,21.0],[70.0,19.6],[72.2,19.1],[72.87,19.08]]}]},{"id":"smw4","name":"SMW4","full_name":"SEA-ME-WE 4","length_km":18800,"rfs":2005,"owner":"16-member consortium (incl. stc)","landings":[{"station":"Marseille","cc":"FR","lon":5.37,"lat":43.3},{"station":"Annaba","cc":"DZ","lon":7.75,"lat":36.9},{"station":"Bizerte","cc":"TN","lon":9.87,"lat":37.27},{"station":"Palermo","cc":"IT","lon":13.36,"lat":38.12},{"station":"Alexandria","cc":"EG","lon":29.92,"lat":31.2},{"station":"Suez","cc":"EG","lon":32.55,"lat":29.97},{"station":"Jeddah","cc":"SA","lon":39.17,"lat":21.54},{"station":"Fujairah","cc":"AE","lon":56.33,"lat":25.12},{"station":"Karachi","cc":"PK","lon":66.99,"lat":24.86},{"station":"Mumbai","cc":"IN","lon":72.87,"lat":19.08},{"station":"Colombo","cc":"LK","lon":79.86,"lat":6.93},{"station":"Chennai","cc":"IN","lon":80.27,"lat":13.08},{"station":"Cox's Bazar","cc":"BD","lon":91.98,"lat":21.45},{"station":"Satun","cc":"TH","lon":100.07,"lat":6.62},{"station":"Malacca","cc":"MY","lon":102.25,"lat":2.19},{"station":"Tuas","cc":"SG","lon":103.64,"lat":1.32}],"tg_match":["seamewe-4","sea-me-we-4","smw4"],"segments":[{"type":"subsea","from":"Marseille","to":"Annaba","coords":[[5.37,43.3],[5.0,42.0],[6.2,39.5],[7.4,37.6],[7.75,36.9]]},{"type":"subsea","from":"Annaba","to":"Bizerte","coords":[[7.75,36.9],[8.6,37.2],[9.4,37.4],[9.87,37.27]]},{"type":"subsea","from":"Bizerte","to":"Palermo","coords":[[9.87,37.27],[10.6,37.7],[12.2,38.1],[13.36,38.12]]},{"type":"subsea","from":"Palermo","to":"Alexandria","coords":[[13.36,38.12],[13.3,38.6],[12.2,38.2],[12.1,37.2],[14.5,36.0],[18.0,34.4],[22.0,33.2],[26.0,32.4],[28.8,31.5],[29.92,31.2]]},{"type":"terrestrial","from":"Alexandria","to":"Suez","coords":[[29.92,31.2],[32.55,29.97]]},{"type":"subsea","from":"Suez","to":"Jeddah","coords":[[32.55,29.97],[32.6,29.6],[33.3,28.4],[34.4,27.3],[35.8,25.4],[37.4,23.2],[39.17,21.54]]},{"type":"subsea","from":"Jeddah","to":"Fujairah","coords":[[39.17,21.54],[38.6,19.5],[40.2,16.8],[42.6,13.9],[43.4,12.5],[46.0,12.2],[50.0,12.0],[53.0,12.4],[55.5,15.0],[58.2,18.2],[60.0,20.6],[60.0,22.6],[59.3,23.6],[57.6,24.9],[56.33,25.12]]},{"type":"subsea","from":"Fujairah","to":"Karachi","coords":[[56.33,25.12],[58.6,24.6],[62.0,23.6],[65.0,23.6],[66.6,24.4],[66.99,24.86]]},{"type":"subsea","from":"Karachi","to":"Mumbai","coords":[[66.99,24.86],[66.6,23.6],[68.4,21.6],[70.0,20.0],[71.8,19.4],[72.87,19.08]]},{"type":"subsea","from":"Mumbai","to":"Colombo","coords":[[72.87,19.08],[72.3,16.0],[73.6,12.0],[75.2,8.6],[76.8,6.6],[79.0,6.2],[79.86,6.93]]},{"type":"subsea","from":"Colombo","to":"Chennai","coords":[[79.86,6.93],[79.3,8.4],[79.5,9.6],[79.9,10.6],[80.2,12.2],[80.27,13.08]]},{"type":"subsea","from":"Chennai","to":"Cox's Bazar","coords":[[80.27,13.08],[82.0,14.0],[86.0,16.6],[89.5,19.4],[91.4,20.9],[91.98,21.45]]},{"type":"subsea","from":"Cox's Bazar","to":"Satun","coords":[[91.98,21.45],[92.4,19.4],[93.6,16.2],[95.2,13.0],[96.8,10.0],[98.2,8.0],[99.4,7.2],[100.07,6.62]]},{"type":"subsea","from":"Satun","to":"Malacca","coords":[[100.07,6.62],[100.3,5.6],[101.2,3.6],[102.0,2.6],[102.25,2.19]]},{"type":"subsea","from":"Malacca","to":"Tuas","coords":[[102.25,2.19],[102.8,1.8],[103.4,1.4],[103.64,1.32]]}]},{"id":"smw5","name":"SMW5","full_name":"SEA-ME-WE 5","length_km":20000,"rfs":2016,"owner":"18-member consortium (incl. stc)","landings":[{"station":"Toulon","cc":"FR","lon":5.93,"lat":43.12},{"station":"Catania","cc":"IT","lon":15.09,"lat":37.5},{"station":"Marmaris","cc":"TR","lon":28.27,"lat":36.85},{"station":"Abu Talat","cc":"EG","lon":29.68,"lat":30.99},{"station":"Zafarana","cc":"EG","lon":32.65,"lat":29.1},{"station":"Yanbu","cc":"SA","lon":38.06,"lat":24.09},{"station":"Al Hudaydah","cc":"YE","lon":42.95,"lat":14.8},{"station":"Haramous","cc":"DJ","lon":43.15,"lat":11.59},{"station":"Qalhat","cc":"OM","lon":59.37,"lat":22.69},{"station":"Fujairah","cc":"AE","lon":56.33,"lat":25.12},{"station":"Karachi","cc":"PK","lon":66.99,"lat":24.86},{"station":"Matara","cc":"LK","lon":80.54,"lat":5.95},{"station":"Ngwe Saung","cc":"MM","lon":94.35,"lat":16.85},{"station":"Kuakata","cc":"BD","lon":90.12,"lat":21.82},{"station":"Medan","cc":"ID","lon":98.67,"lat":3.59},{"station":"Dumai","cc":"ID","lon":101.45,"lat":1.68},{"station":"Malacca","cc":"MY","lon":102.25,"lat":2.19},{"station":"Tuas","cc":"SG","lon":103.64,"lat":1.32}],"tg_match":["seamewe-5","sea-me-we-5","smw5"],"segments":[{"type":"subsea","from":"Toulon","to":"Catania","coords":[[5.93,43.12],[6.4,42.0],[8.6,40.0],[10.6,38.6],[11.8,37.4],[13.4,36.4],[15.0,36.7],[15.09,37.5]]},{"type":"subsea","from":"Catania","to":"Marmaris","coords":[[15.09,37.5],[17.0,36.4],[21.0,36.2],[24.5,36.2],[27.4,36.5],[28.27,36.85]]},{"type":"subsea","from":"Marmaris","to":"Abu Talat","coords":[[28.27,36.85],[28.6,35.3],[30.2,33.0],[30.4,31.8],[29.68,30.99]]},{"type":"terrestrial","from":"Abu Talat","to":"Zafarana","coords":[[29.68,30.99],[32.65,29.1]]},{"type":"subsea","from":"Zafarana","to":"Yanbu","coords":[[32.65,29.1],[32.9,28.9],[33.6,28.0],[34.6,27.2],[35.8,25.4],[37.2,24.8],[38.06,24.09]]},{"type":"subsea","from":"Yanbu","to":"Al Hudaydah","coords":[[38.06,24.09],[38.6,22.4],[39.8,19.4],[41.0,17.0],[42.2,15.6],[42.95,14.8]]},{"type":"subsea","from":"Al Hudaydah","to":"Haramous","coords":[[42.95,14.8],[43.0,14.0],[43.4,12.9],[43.3,12.2],[43.15,11.59]]},{"type":"subsea","from":"Haramous","to":"Qalhat","coords":[[43.15,11.59],[44.2,11.8],[48.0,12.2],[52.0,12.6],[55.4,14.6],[58.0,17.6],[60.0,20.6],[60.0,22.4],[59.37,22.69]]},{"type":"subsea","from":"Qalhat","to":"Fujairah","coords":[[59.37,22.69],[59.6,23.4],[58.6,24.4],[57.2,25.1],[56.33,25.12]]},{"type":"subsea","from":"Fujairah","to":"Karachi","coords":[[56.33,25.12],[58.6,24.6],[62.0,23.6],[65.0,23.6],[66.6,24.4],[66.99,24.86]]},{"type":"subsea","from":"Karachi","to":"Matara","coords":[[66.99,24.86],[66.8,23.4],[69.0,20.0],[71.5,15.0],[73.5,10.0],[76.0,6.6],[78.6,5.4],[80.54,5.95]]},{"type":"subsea","from":"Matara","to":"Kuakata","coords":[[80.54,5.95],[81.4,5.6],[82.6,6.6],[84.0,10.0],[87.0,15.0],[89.6,19.0],[90.0,21.0],[90.12,21.82]]},{"type":"subsea","from":"Kuakata","to":"Ngwe Saung","coords":[[90.12,21.82],[90.6,20.4],[92.0,18.6],[93.6,17.2],[94.35,16.85]]},{"type":"subsea","from":"Ngwe Saung","to":"Medan","coords":[[94.35,16.85],[94.6,15.4],[95.6,12.0],[96.6,8.0],[97.8,5.2],[98.8,4.2],[98.67,3.59]]},{"type":"subsea","from":"Medan","to":"Dumai","coords":[[98.67,3.59],[99.7,3.3],[100.8,2.4],[101.3,1.9],[101.45,1.68]]},{"type":"subsea","from":"Dumai","to":"Malacca","coords":[[101.45,1.68],[101.8,1.9],[102.1,2.1],[102.25,2.19]]},{"type":"subsea","from":"Malacca","to":"Tuas","coords":[[102.25,2.19],[102.8,1.8],[103.4,1.4],[103.64,1.32]]}]},{"id":"svc","name":"SVC","full_name":"Saudi Vision Cable","length_km":1160,"rfs":2024,"owner":"center3 (stc group)","landings":[{"station":"Jeddah","cc":"SA","lon":39.17,"lat":21.54},{"station":"Yanbu","cc":"SA","lon":38.06,"lat":24.09},{"station":"Duba","cc":"SA","lon":35.69,"lat":27.35},{"station":"Haql","cc":"SA","lon":34.94,"lat":29.29}],"tg_match":["saudi-vision"],"segments":[{"type":"subsea","from":"Haql","to":"Duba","coords":[[34.94,29.29],[34.9,28.9],[35.2,28.2],[35.69,27.35]]},{"type":"subsea","from":"Duba","to":"Yanbu","coords":[[35.69,27.35],[36.4,26.4],[37.4,25.0],[38.06,24.09]]},{"type":"subsea","from":"Yanbu","to":"Jeddah","coords":[[38.06,24.09],[38.3,23.0],[38.8,22.2],[39.17,21.54]]}]},{"id":"2africa","name":"2Africa","full_name":"2Africa (incl. Pearls extension)","length_km":45000,"rfs":2023,"owner":"center3, Meta, Orange, stc, Vodafone, MTN, China Mobile, Telecom Egypt, WIOCC","landings":[{"station":"Bude","cc":"GB","lon":-4.55,"lat":50.83},{"station":"Sesimbra","cc":"PT","lon":-9.1,"lat":38.44},{"station":"Barcelona","cc":"ES","lon":2.18,"lat":41.38},{"station":"Marseille","cc":"FR","lon":5.37,"lat":43.3},{"station":"Genoa","cc":"IT","lon":8.93,"lat":44.41},{"station":"Port Said","cc":"EG","lon":32.3,"lat":31.26},{"station":"Ras Ghareb","cc":"EG","lon":33.11,"lat":28.35},{"station":"Duba","cc":"SA","lon":35.69,"lat":27.35},{"station":"Yanbu","cc":"SA","lon":38.06,"lat":24.09},{"station":"Jeddah","cc":"SA","lon":39.17,"lat":21.54},{"station":"Djibouti","cc":"DJ","lon":43.15,"lat":11.59},{"station":"Mombasa","cc":"KE","lon":39.66,"lat":-4.04},{"station":"Dar es Salaam","cc":"TZ","lon":39.28,"lat":-6.82},{"station":"Maputo","cc":"MZ","lon":32.58,"lat":-25.97},{"station":"Duynefontein","cc":"ZA","lon":18.43,"lat":-33.65},{"station":"Lagos","cc":"NG","lon":3.4,"lat":6.45},{"station":"Accra","cc":"GH","lon":-0.19,"lat":5.56},{"station":"Dakar","cc":"SN","lon":-17.44,"lat":14.72},{"station":"Al Khobar","cc":"SA","lon":50.21,"lat":26.28},{"station":"Al Hidd","cc":"BH","lon":50.66,"lat":26.25},{"station":"Doha","cc":"QA","lon":51.53,"lat":25.29},{"station":"Al Faw","cc":"IQ","lon":48.47,"lat":29.98},{"station":"Kuwait City","cc":"KW","lon":47.99,"lat":29.38},{"station":"Al Seeb","cc":"OM","lon":58.19,"lat":23.67},{"station":"Karachi","cc":"PK","lon":66.99,"lat":24.86},{"station":"Mumbai","cc":"IN","lon":72.87,"lat":19.08}],"tg_match":["2africa"],"segments":[{"type":"subsea","from":"Bude","to":"Sesimbra","coords":[[-4.55,50.83],[-6.2,49.5],[-9.4,46.5],[-10.2,42.5],[-9.9,39.6],[-9.1,38.44]]},{"type":"subsea","from":"Sesimbra","to":"Barcelona","coords":[[-9.1,38.44],[-9.7,37.6],[-9.0,36.5],[-6.9,35.9],[-5.6,35.85],[-2.0,36.4],[0.6,38.4],[1.6,40.6],[2.2,41.2],[2.18,41.38]]},{"type":"subsea","from":"Barcelona","to":"Marseille","coords":[[2.18,41.38],[3.6,42.2],[4.9,42.9],[5.37,43.3]]},{"type":"subsea","from":"Marseille","to":"Genoa","coords":[[5.37,43.3],[6.6,43.1],[8.2,43.8],[8.93,44.41]]},{"type":"subsea","from":"Genoa","to":"Port Said","coords":[[8.93,44.41],[8.7,42.8],[8.4,41.0],[9.2,38.2],[11.6,37.0],[15.2,35.4],[20.0,34.0],[25.0,33.0],[30.0,31.8],[32.3,31.26]]},{"type":"terrestrial","from":"Port Said","to":"Ras Ghareb","coords":[[32.3,31.26],[33.11,28.35]]},{"type":"subsea","from":"Ras Ghareb","to":"Duba","coords":[[33.11,28.35],[33.6,28.0],[34.7,27.7],[35.69,27.35]]},{"type":"subsea","from":"Duba","to":"Yanbu","coords":[[35.69,27.35],[36.4,26.4],[37.4,25.0],[38.06,24.09]]},{"type":"subsea","from":"Yanbu","to":"Jeddah","coords":[[38.06,24.09],[38.3,23.0],[38.8,22.2],[39.17,21.54]]},{"type":"subsea","from":"Jeddah","to":"Djibouti","coords":[[39.17,21.54],[38.6,19.5],[40.0,17.0],[41.4,15.0],[42.8,13.6],[43.3,12.3],[43.15,11.59]]},{"type":"subsea","from":"Djibouti","to":"Mombasa","coords":[[43.15,11.59],[44.0,11.6],[48.5,11.9],[51.6,11.8],[52.0,10.0],[51.6,7.0],[49.5,4.0],[46.0,0.5],[43.0,-2.5],[41.0,-3.6],[39.66,-4.04]]},{"type":"subsea","from":"Mombasa","to":"Dar es Salaam","coords":[[39.66,-4.04],[39.9,-5.4],[39.7,-6.3],[39.28,-6.82]]},{"type":"subsea","from":"Dar es Salaam","to":"Maputo","coords":[[39.28,-6.82],[40.4,-8.2],[41.0,-12.0],[40.4,-16.0],[37.0,-21.0],[35.0,-25.0],[33.4,-26.0],[32.58,-25.97]]},{"type":"subsea","from":"Maputo","to":"Duynefontein","coords":[[32.58,-25.97],[33.2,-27.6],[32.0,-31.0],[30.0,-34.0],[27.0,-35.2],[22.0,-35.6],[19.0,-35.0],[18.43,-33.65]]},{"type":"subsea","from":"Duynefontein","to":"Lagos","coords":[[18.43,-33.65],[17.6,-34.2],[15.5,-31.0],[12.0,-25.0],[9.0,-15.0],[6.0,-6.0],[4.2,2.0],[3.6,5.4],[3.4,6.45]]},{"type":"subsea","from":"Lagos","to":"Accra","coords":[[3.4,6.45],[2.4,5.4],[0.6,5.0],[-0.19,5.56]]},{"type":"subsea","from":"Accra","to":"Dakar","coords":[[-0.19,5.56],[-1.0,4.6],[-4.0,3.6],[-8.0,3.6],[-12.0,6.5],[-15.5,10.0],[-17.6,13.5],[-17.44,14.72]]},{"type":"subsea","from":"Dakar","to":"Sesimbra","coords":[[-17.44,14.72],[-18.4,17.0],[-18.6,22.0],[-16.5,28.0],[-13.0,33.0],[-10.6,36.2],[-9.9,38.1],[-9.1,38.44]]},{"type":"subsea","from":"Djibouti","to":"Al Seeb","coords":[[43.15,11.59],[44.2,11.8],[48.0,12.2],[52.0,12.6],[55.2,14.8],[58.0,17.8],[60.0,20.6],[60.0,22.6],[59.2,23.5],[58.19,23.67]]},{"type":"subsea","from":"Al Seeb","to":"Al Khobar","coords":[[58.19,23.67],[58.6,24.0],[57.0,25.2],[56.8,25.9],[56.5,26.75],[55.6,26.4],[54.0,26.2],[52.2,27.0],[50.9,27.4],[50.21,26.28]]},{"type":"subsea","from":"Al Khobar","to":"Al Hidd","coords":[[50.21,26.28],[50.4,26.3],[50.66,26.25]]},{"type":"subsea","from":"Al Hidd","to":"Doha","coords":[[50.66,26.25],[51.0,26.0],[51.5,25.7],[51.53,25.29]]},{"type":"subsea","from":"Doha","to":"Al Faw","coords":[[51.53,25.29],[51.2,26.2],[50.2,28.0],[48.9,29.4],[48.47,29.98]]},{"type":"subsea","from":"Al Faw","to":"Kuwait City","coords":[[48.47,29.98],[48.2,29.6],[47.99,29.38]]},{"type":"subsea","from":"Al Seeb","to":"Karachi","coords":[[58.19,23.67],[59.2,23.4],[62.0,23.4],[65.0,23.6],[66.6,24.4],[66.99,24.86]]},{"type":"subsea","from":"Karachi","to":"Mumbai","coords":[[66.99,24.86],[66.6,23.6],[68.4,21.6],[70.0,20.0],[71.8,19.4],[72.87,19.08]]}]},{"id":"eig","name":"EIG","full_name":"Europe India Gateway","length_km":15000,"rfs":2011,"owner":"18-company consortium (incl. stc)","landings":[{"station":"Bude","cc":"GB","lon":-4.55,"lat":50.83},{"station":"Sesimbra","cc":"PT","lon":-9.1,"lat":38.44},{"station":"Gibraltar","cc":"ES","lon":-5.35,"lat":36.14},{"station":"Marseille","cc":"FR","lon":5.37,"lat":43.3},{"station":"Tripoli","cc":"LY","lon":13.19,"lat":32.89},{"station":"Alexandria","cc":"EG","lon":29.92,"lat":31.2},{"station":"Suez","cc":"EG","lon":32.55,"lat":29.97},{"station":"Jeddah","cc":"SA","lon":39.17,"lat":21.54},{"station":"Djibouti","cc":"DJ","lon":43.15,"lat":11.59},{"station":"Muscat","cc":"OM","lon":58.54,"lat":23.61},{"station":"Fujairah","cc":"AE","lon":56.33,"lat":25.12},{"station":"Mumbai","cc":"IN","lon":72.87,"lat":19.08}],"tg_match":["europe-india-gateway","eig"],"segments":[{"type":"subsea","from":"Bude","to":"Sesimbra","coords":[[-4.55,50.83],[-6.2,49.5],[-9.4,46.5],[-10.2,42.5],[-9.9,39.6],[-9.1,38.44]]},{"type":"subsea","from":"Sesimbra","to":"Gibraltar","coords":[[-9.1,38.44],[-9.6,37.8],[-9.1,36.6],[-7.5,36.2],[-6.3,36.05],[-5.35,36.14]]},{"type":"subsea","from":"Gibraltar","to":"Marseille","coords":[[-5.35,36.14],[-4.0,36.2],[-1.0,37.0],[1.5,39.0],[4.0,41.5],[5.37,43.3]]},{"type":"subsea","from":"Marseille","to":"Tripoli","coords":[[5.37,43.3],[5.6,42.0],[8.0,39.2],[10.2,38.4],[11.9,37.3],[12.6,35.0],[13.0,33.6],[13.19,32.89]]},{"type":"subsea","from":"Tripoli","to":"Alexandria","coords":[[13.19,32.89],[16.0,32.9],[20.0,32.6],[25.0,32.1],[28.8,31.4],[29.92,31.2]]},{"type":"terrestrial","from":"Alexandria","to":"Suez","coords":[[29.92,31.2],[32.55,29.97]]},{"type":"subsea","from":"Suez","to":"Jeddah","coords":[[32.55,29.97],[32.6,29.6],[33.3,28.4],[34.4,27.3],[35.8,25.4],[37.4,23.2],[39.17,21.54]]},{"type":"subsea","from":"Jeddah","to":"Djibouti","coords":[[39.17,21.54],[38.6,19.5],[40.0,17.0],[41.4,15.0],[42.8,13.6],[43.3,12.3],[43.15,11.59]]},{"type":"subsea","from":"Djibouti","to":"Muscat","coords":[[43.15,11.59],[44.2,11.8],[48.0,12.2],[52.0,12.6],[55.2,14.8],[58.0,17.8],[60.0,20.6],[60.0,22.6],[59.4,23.4],[58.54,23.61]]},{"type":"subsea","from":"Muscat","to":"Fujairah","coords":[[58.54,23.61],[58.9,24.2],[57.4,25.0],[56.33,25.12]]},{"type":"subsea","from":"Fujairah","to":"Mumbai","coords":[[56.33,25.12],[58.4,24.5],[62.0,22.6],[66.0,21.0],[70.0,19.6],[72.2,19.1],[72.87,19.08]]}]},{"id":"imewe","name":"IMEWE","full_name":"India\u2013Middle East\u2013Western Europe","length_km":12091,"rfs":2010,"owner":"9-member consortium (incl. stc)","landings":[{"station":"Marseille","cc":"FR","lon":5.37,"lat":43.3},{"station":"Catania","cc":"IT","lon":15.09,"lat":37.5},{"station":"Tripoli","cc":"LB","lon":35.84,"lat":34.44},{"station":"Alexandria","cc":"EG","lon":29.92,"lat":31.2},{"station":"Suez","cc":"EG","lon":32.55,"lat":29.97},{"station":"Jeddah","cc":"SA","lon":39.17,"lat":21.54},{"station":"Fujairah","cc":"AE","lon":56.33,"lat":25.12},{"station":"Karachi","cc":"PK","lon":66.99,"lat":24.86},{"station":"Mumbai","cc":"IN","lon":72.87,"lat":19.08}],"tg_match":["imewe","i-me-we"],"segments":[{"type":"subsea","from":"Marseille","to":"Catania","coords":[[5.37,43.3],[5.9,42.0],[8.4,40.0],[10.4,38.6],[11.8,37.4],[13.4,36.4],[15.0,36.7],[15.09,37.5]]},{"type":"subsea","from":"Catania","to":"Tripoli","coords":[[15.09,37.5],[15.6,36.9],[18.0,35.6],[22.0,34.6],[27.0,34.0],[31.5,34.0],[34.6,34.2],[35.84,34.44]]},{"type":"subsea","from":"Tripoli","to":"Alexandria","coords":[[35.84,34.44],[16.0,32.9],[20.0,32.6],[25.0,32.1],[28.8,31.4],[29.92,31.2]]},{"type":"terrestrial","from":"Alexandria","to":"Suez","coords":[[29.92,31.2],[32.55,29.97]]},{"type":"subsea","from":"Suez","to":"Jeddah","coords":[[32.55,29.97],[32.6,29.6],[33.3,28.4],[34.4,27.3],[35.8,25.4],[37.4,23.2],[39.17,21.54]]},{"type":"subsea","from":"Jeddah","to":"Fujairah","coords":[[39.17,21.54],[38.6,19.5],[40.2,16.8],[42.6,13.9],[43.4,12.5],[46.0,12.2],[50.0,12.0],[53.0,12.4],[55.5,15.0],[58.2,18.2],[60.0,20.6],[60.0,22.6],[59.3,23.6],[57.6,24.9],[56.33,25.12]]},{"type":"subsea","from":"Fujairah","to":"Karachi","coords":[[56.33,25.12],[58.6,24.6],[62.0,23.6],[65.0,23.6],[66.6,24.4],[66.99,24.86]]},{"type":"subsea","from":"Karachi","to":"Mumbai","coords":[[66.99,24.86],[66.6,23.6],[68.4,21.6],[70.0,20.0],[71.8,19.4],[72.87,19.08]]}]},{"id":"sas1","name":"SAS-1","full_name":"Saudi Arabia\u2013Sudan 1","length_km":730,"rfs":2003,"owner":"stc / center3","landings":[{"station":"Jeddah","cc":"SA","lon":39.17,"lat":21.54},{"station":"Port Sudan","cc":"SD","lon":37.22,"lat":19.62}],"tg_match":["saudi-arabia-sudan-1"],"segments":[{"type":"subsea","from":"Jeddah","to":"Port Sudan","coords":[[39.17,21.54],[38.4,20.8],[37.8,20.1],[37.22,19.62]]}]},{"id":"sas2","name":"SAS-2","full_name":"Saudi Arabia\u2013Sudan 2","length_km":740,"rfs":2010,"owner":"stc / center3","landings":[{"station":"Jeddah","cc":"SA","lon":39.28,"lat":21.38},{"station":"Port Sudan","cc":"SD","lon":37.3,"lat":19.48}],"tg_match":["saudi-arabia-sudan-2"],"segments":[{"type":"subsea","from":"Jeddah","to":"Port Sudan","coords":[[39.28,21.38],[38.4,20.8],[37.8,20.1],[37.3,19.48]]}]},{"id":"iex-iax","name":"IEX-IAX","full_name":"India-Europe-Xpress / India-Asia-Xpress","length_km":19500,"rfs":2025,"owner":"Reliance Jio, China Mobile (SubCom-built)","landings":[{"station":"Savona","cc":"IT","lon":8.48,"lat":44.31},{"station":"Tympaki","cc":"GR","lon":24.77,"lat":35.07},{"station":"Sidi Kerir","cc":"EG","lon":29.62,"lat":30.95},{"station":"Zafarana","cc":"EG","lon":32.65,"lat":29.1},{"station":"NEOM","cc":"SA","lon":35.2,"lat":28.05},{"station":"Yanbu","cc":"SA","lon":38.06,"lat":24.09},{"station":"Djibouti","cc":"DJ","lon":43.15,"lat":11.59},{"station":"Salalah","cc":"OM","lon":54.09,"lat":17.02},{"station":"Mumbai","cc":"IN","lon":72.87,"lat":19.08},{"station":"Chennai","cc":"IN","lon":80.27,"lat":13.08},{"station":"Satun","cc":"TH","lon":100.07,"lat":6.62},{"station":"Malacca","cc":"MY","lon":102.25,"lat":2.19},{"station":"Tuas","cc":"SG","lon":103.64,"lat":1.32}],"tg_match":["india-europe-xpress","india-asia-xpress","iex","iax"],"segments":[{"type":"subsea","from":"Savona","to":"Tympaki","coords":[[8.48,44.31],[8.7,43.2],[9.4,40.2],[11.2,38.2],[15.0,36.2],[19.0,35.2],[22.5,35.2],[24.77,35.07]]},{"type":"subsea","from":"Tympaki","to":"Sidi Kerir","coords":[[24.77,35.07],[25.6,34.4],[27.6,33.0],[29.2,31.6],[29.62,30.95]]},{"type":"terrestrial","from":"Sidi Kerir","to":"Zafarana","coords":[[29.62,30.95],[32.65,29.1]]},{"type":"subsea","from":"Zafarana","to":"NEOM","coords":[[32.65,29.1],[32.9,28.9],[33.7,28.1],[34.5,27.8],[35.2,28.05]]},{"type":"subsea","from":"NEOM","to":"Yanbu","coords":[[35.2,28.05],[35.6,27.4],[36.6,26.0],[37.5,24.8],[38.06,24.09]]},{"type":"subsea","from":"Yanbu","to":"Djibouti","coords":[[38.06,24.09],[38.6,22.0],[39.9,19.0],[41.2,16.4],[42.6,14.0],[43.3,12.3],[43.15,11.59]]},{"type":"subsea","from":"Djibouti","to":"Salalah","coords":[[43.15,11.59],[44.2,11.7],[48.0,12.3],[51.2,13.0],[53.2,15.0],[54.0,16.2],[54.09,17.02]]},{"type":"subsea","from":"Salalah","to":"Mumbai","coords":[[54.09,17.02],[55.0,16.6],[58.5,18.4],[63.0,19.2],[68.0,19.4],[71.5,19.2],[72.87,19.08]]},{"type":"subsea","from":"Mumbai","to":"Chennai","coords":[[72.87,19.08],[72.3,17.0],[73.6,13.0],[75.2,9.0],[76.8,6.2],[79.4,5.2],[82.2,5.8],[82.8,8.6],[82.0,11.4],[80.9,12.8],[80.27,13.08]]},{"type":"subsea","from":"Chennai","to":"Satun","coords":[[80.27,13.08],[81.4,12.4],[85.0,10.0],[89.0,8.0],[93.0,7.0],[96.5,6.6],[98.8,6.6],[100.07,6.62]]},{"type":"subsea","from":"Satun","to":"Malacca","coords":[[100.07,6.62],[100.3,5.6],[101.2,3.6],[102.0,2.6],[102.25,2.19]]},{"type":"subsea","from":"Malacca","to":"Tuas","coords":[[102.25,2.19],[102.8,1.8],[103.4,1.4],[103.64,1.32]]}]},{"id":"emc-west-1","name":"EMC West-1","full_name":"East to Med Corridor West \u2014 1","length_km":6000,"rfs":2026,"owner":"center3 (stc), Cyta, PPC, TTSA","landings":[{"station":"Haql","cc":"SA","lon":34.94,"lat":29.29},{"station":"Larnaca","cc":"CY","lon":33.62,"lat":34.92},{"station":"Crete","cc":"GR","lon":24.02,"lat":35.51},{"station":"Athens","cc":"GR","lon":23.73,"lat":37.98},{"station":"Genova","cc":"IT","lon":8.93,"lat":44.41}],"tg_match":["emc-west-1"],"segments":[{"type":"terrestrial","label":"Levant overland crossing","coords":[[34.94,29.29],[35.16,29.76],[35.16,31.05],[34.79,31.54],[34.87,32.34]]},{"type":"subsea","from":"Levant landing","to":"Larnaca","coords":[[34.87,32.34],[34.2,33.4],[33.9,34.6],[33.62,34.92]]},{"type":"subsea","from":"Larnaca","to":"Crete","coords":[[33.62,34.92],[33.2,34.4],[32.0,34.3],[28.5,34.6],[26.0,34.5],[24.0,34.8],[23.3,35.3],[24.02,35.51]]},{"type":"subsea","from":"Crete","to":"Athens","coords":[[24.02,35.51],[24.1,36.2],[23.9,37.2],[23.73,37.98]]},{"type":"subsea","from":"Crete","to":"Genova","coords":[[24.02,35.51],[23.4,35.0],[20.0,34.8],[16.0,35.4],[13.0,36.2],[11.6,37.4],[9.6,39.6],[8.4,41.8],[8.8,43.6],[8.93,44.41]]}]},{"id":"emc-west-2","name":"EMC West-2","full_name":"East to Med Corridor West \u2014 2","length_km":6000,"rfs":2026,"owner":"center3 (stc), Cyta, PPC, TTSA","landings":[{"station":"Haql","cc":"SA","lon":34.94,"lat":29.29},{"station":"Larnaca","cc":"CY","lon":33.62,"lat":34.92},{"station":"Crete","cc":"GR","lon":24.02,"lat":35.51},{"station":"Marseille","cc":"FR","lon":5.37,"lat":43.3}],"tg_match":["emc-west-2"],"segments":[{"type":"terrestrial","label":"Levant overland crossing","coords":[[34.94,29.29],[35.16,29.76],[35.16,31.05],[34.79,31.54],[34.87,32.34]]},{"type":"subsea","from":"Levant landing","to":"Larnaca","coords":[[34.87,32.34],[34.2,33.4],[33.9,34.6],[33.62,34.92]]},{"type":"subsea","from":"Larnaca","to":"Crete","coords":[[33.62,34.92],[33.2,34.4],[32.0,34.3],[28.5,34.6],[26.0,34.5],[24.0,34.8],[23.3,35.3],[24.02,35.51]]},{"type":"subsea","from":"Crete","to":"Marseille","coords":[[24.02,35.51],[23.4,35.0],[20.0,34.8],[16.0,35.4],[13.0,36.2],[11.6,37.4],[9.6,39.4],[7.6,41.0],[5.9,42.4],[5.37,43.3]]}]},{"id":"gbi","name":"GBI","full_name":"Gulf Bridge International","length_km":10000,"rfs":2012,"owner":"Gulf Bridge International (QIA)","landings":[{"station":"Kuwait City","cc":"KW","lon":47.99,"lat":29.38},{"station":"Al Faw","cc":"IQ","lon":48.47,"lat":29.98},{"station":"Bushehr","cc":"IR","lon":50.84,"lat":28.97},{"station":"Al Khobar","cc":"SA","lon":50.21,"lat":26.28},{"station":"Al Hidd","cc":"BH","lon":50.66,"lat":26.25},{"station":"Al Khor","cc":"QA","lon":51.5,"lat":25.68},{"station":"Fujairah","cc":"AE","lon":56.33,"lat":25.12},{"station":"Al Seeb","cc":"OM","lon":58.19,"lat":23.67},{"station":"Mumbai","cc":"IN","lon":72.87,"lat":19.08}],"tg_match":["gulf-bridge-international","gbics"],"segments":[{"type":"subsea","from":"Kuwait City","to":"Al Faw","coords":[[47.99,29.38],[48.2,29.6],[48.47,29.98]]},{"type":"subsea","from":"Al Faw","to":"Bushehr","coords":[[48.47,29.98],[49.0,29.5],[49.9,29.2],[50.5,29.0],[50.84,28.97]]},{"type":"subsea","from":"Bushehr","to":"Al Khobar","coords":[[50.84,28.97],[50.9,28.2],[50.6,27.1],[50.21,26.28]]},{"type":"subsea","from":"Al Khobar","to":"Al Hidd","coords":[[50.21,26.28],[50.4,26.3],[50.66,26.25]]},{"type":"subsea","from":"Al Hidd","to":"Al Khor","coords":[[50.66,26.25],[51.0,26.0],[51.5,25.68]]},{"type":"subsea","from":"Al Khor","to":"Fujairah","coords":[[51.5,25.68],[52.4,25.6],[54.4,25.9],[55.6,26.4],[56.5,26.75],[56.95,26.3],[56.7,25.6],[56.33,25.12]]},{"type":"subsea","from":"Fujairah","to":"Al Seeb","coords":[[56.33,25.12],[57.3,25.0],[58.8,24.1],[58.19,23.67]]},{"type":"subsea","from":"Al Seeb","to":"Mumbai","coords":[[58.19,23.67],[59.0,23.0],[62.0,22.2],[66.0,21.0],[70.0,19.6],[72.2,19.1],[72.87,19.08]]}]},{"id":"eassy","name":"Essay (EASSy)","full_name":"Eastern Africa Submarine Cable System","length_km":10000,"rfs":2010,"owner":"WIOCC-led consortium (16 operators)","landings":[{"station":"Port Sudan","cc":"SD","lon":37.22,"lat":19.62},{"station":"Djibouti","cc":"DJ","lon":43.15,"lat":11.59},{"station":"Mogadishu","cc":"SO","lon":45.34,"lat":2.04},{"station":"Mombasa","cc":"KE","lon":39.66,"lat":-4.04},{"station":"Moroni","cc":"KM","lon":43.26,"lat":-11.7},{"station":"Dar es Salaam","cc":"TZ","lon":39.28,"lat":-6.82},{"station":"Toliara","cc":"MG","lon":43.67,"lat":-23.35},{"station":"Maputo","cc":"MZ","lon":32.58,"lat":-25.97},{"station":"Mtunzini","cc":"ZA","lon":31.75,"lat":-28.95}],"tg_match":["eastern-africa-submarine-system","eassy"],"segments":[{"type":"subsea","from":"Port Sudan","to":"Djibouti","coords":[[37.22,19.62],[38.2,18.0],[39.8,16.0],[41.2,14.0],[42.6,12.9],[43.15,11.59]]},{"type":"subsea","from":"Djibouti","to":"Mogadishu","coords":[[43.15,11.59],[44.0,11.6],[48.5,11.9],[51.6,11.9],[52.0,10.5],[51.6,7.5],[49.5,4.0],[47.2,2.0],[45.34,2.04]]},{"type":"subsea","from":"Mogadishu","to":"Mombasa","coords":[[45.34,2.04],[45.2,0.6],[43.0,-2.2],[41.0,-3.6],[39.66,-4.04]]},{"type":"subsea","from":"Mombasa","to":"Dar es Salaam","coords":[[39.66,-4.04],[39.9,-5.4],[39.7,-6.3],[39.28,-6.82]]},{"type":"subsea","from":"Dar es Salaam","to":"Maputo","coords":[[39.28,-6.82],[40.4,-8.2],[41.0,-12.0],[40.4,-16.0],[37.0,-21.0],[35.0,-25.0],[33.4,-26.0],[32.58,-25.97]]},{"type":"subsea","from":"Maputo","to":"Mtunzini","coords":[[32.58,-25.97],[33.0,-27.4],[32.4,-28.6],[31.75,-28.95]]},{"type":"subsea","from":"Mombasa","to":"Moroni","coords":[[39.66,-4.04],[40.6,-5.2],[42.2,-8.4],[43.4,-11.0],[43.26,-11.7]]},{"type":"subsea","from":"Moroni","to":"Toliara","coords":[[43.26,-11.7],[43.0,-13.5],[42.8,-17.0],[42.8,-21.0],[43.2,-23.2],[43.67,-23.35]]}]}]};
+const REACH_DATA={"meta":{"title":"Reachability \u2014 countries with a landing station on the in-scope cable systems","derived_from":"cables.json","rule":"A country counts as reachable if at least one of the 13 cable systems has a landing station in it.","generated":"2026-07-23"},"summary":{"cable_systems":14,"countries_reachable":43,"landing_stations":74,"total_route_km":174121},"countries":[{"cc":"SA","name":"Saudi Arabia","iso_n":682,"region":"middleeast","home":true,"cable_count":13,"cables":["MENA","SMW4","SMW5","SVC","2Africa","EIG","IMEWE","SAS-1","SAS-2","IEX-IAX","EMC West-1","EMC West-2","GBI"],"stations":["Jeddah","Yanbu","Duba","Haql","Al Khobar","NEOM"]},{"cc":"EG","name":"Egypt","iso_n":818,"region":"africa","home":false,"cable_count":7,"cables":["MENA","SMW4","SMW5","2Africa","EIG","IMEWE","IEX-IAX"],"stations":["Alexandria","Zafarana","Suez","Abu Talat","Port Said","Ras Ghareb","Sidi Kerir"]},{"cc":"IN","name":"India","iso_n":356,"region":"southasia","home":false,"cable_count":7,"cables":["MENA","SMW4","2Africa","EIG","IMEWE","IEX-IAX","GBI"],"stations":["Mumbai","Chennai"]},{"cc":"IT","name":"Italy","iso_n":380,"region":"europe","home":false,"cable_count":7,"cables":["MENA","SMW4","SMW5","2Africa","IMEWE","IEX-IAX","EMC West-1"],"stations":["Mazara del Vallo","Palermo","Catania","Genoa","Savona","Genova"]},{"cc":"FR","name":"France","iso_n":250,"region":"europe","home":false,"cable_count":6,"cables":["SMW4","SMW5","2Africa","EIG","IMEWE","EMC West-2"],"stations":["Marseille","Toulon"]},{"cc":"OM","name":"Oman","iso_n":512,"region":"middleeast","home":false,"cable_count":6,"cables":["MENA","SMW5","2Africa","EIG","IEX-IAX","GBI"],"stations":["Muscat","Qalhat","Al Seeb","Salalah"]},{"cc":"AE","name":"United Arab Emirates","iso_n":784,"region":"middleeast","home":false,"cable_count":5,"cables":["SMW4","SMW5","EIG","IMEWE","GBI"],"stations":["Fujairah"]},{"cc":"DJ","name":"Djibouti","iso_n":262,"region":"africa","home":false,"cable_count":5,"cables":["SMW5","2Africa","EIG","IEX-IAX","Essay (EASSy)"],"stations":["Haramous","Djibouti"]},{"cc":"GR","name":"Greece","iso_n":300,"region":"europe","home":false,"cable_count":4,"cables":["MENA","IEX-IAX","EMC West-1","EMC West-2"],"stations":["Chania (Crete)","Tympaki","Crete","Athens"]},{"cc":"PK","name":"Pakistan","iso_n":586,"region":"southasia","home":false,"cable_count":4,"cables":["SMW4","SMW5","2Africa","IMEWE"],"stations":["Karachi"]},{"cc":"MY","name":"Malaysia","iso_n":458,"region":"seasia","home":false,"cable_count":3,"cables":["SMW4","SMW5","IEX-IAX"],"stations":["Malacca"]},{"cc":"SD","name":"Sudan","iso_n":729,"region":"africa","home":false,"cable_count":3,"cables":["SAS-1","SAS-2","Essay (EASSy)"],"stations":["Port Sudan"]},{"cc":"SG","name":"Singapore","iso_n":702,"region":"seasia","home":false,"cable_count":3,"cables":["SMW4","SMW5","IEX-IAX"],"stations":["Tuas"]},{"cc":"BD","name":"Bangladesh","iso_n":50,"region":"southasia","home":false,"cable_count":2,"cables":["SMW4","SMW5"],"stations":["Cox's Bazar","Kuakata"]},{"cc":"BH","name":"Bahrain","iso_n":48,"region":"middleeast","home":false,"cable_count":2,"cables":["2Africa","GBI"],"stations":["Al Hidd"]},{"cc":"CY","name":"Cyprus","iso_n":196,"region":"europe","home":false,"cable_count":2,"cables":["EMC West-1","EMC West-2"],"stations":["Larnaca"]},{"cc":"ES","name":"Spain","iso_n":724,"region":"europe","home":false,"cable_count":2,"cables":["2Africa","EIG"],"stations":["Barcelona","Gibraltar"]},{"cc":"GB","name":"United Kingdom","iso_n":826,"region":"europe","home":false,"cable_count":2,"cables":["2Africa","EIG"],"stations":["Bude"]},{"cc":"IQ","name":"Iraq","iso_n":368,"region":"middleeast","home":false,"cable_count":2,"cables":["2Africa","GBI"],"stations":["Al Faw"]},{"cc":"KE","name":"Kenya","iso_n":404,"region":"africa","home":false,"cable_count":2,"cables":["2Africa","Essay (EASSy)"],"stations":["Mombasa"]},{"cc":"KW","name":"Kuwait","iso_n":414,"region":"middleeast","home":false,"cable_count":2,"cables":["2Africa","GBI"],"stations":["Kuwait City"]},{"cc":"LK","name":"Sri Lanka","iso_n":144,"region":"southasia","home":false,"cable_count":2,"cables":["SMW4","SMW5"],"stations":["Colombo","Matara"]},{"cc":"MZ","name":"Mozambique","iso_n":508,"region":"africa","home":false,"cable_count":2,"cables":["2Africa","Essay (EASSy)"],"stations":["Maputo"]},{"cc":"PT","name":"Portugal","iso_n":620,"region":"europe","home":false,"cable_count":2,"cables":["2Africa","EIG"],"stations":["Sesimbra"]},{"cc":"QA","name":"Qatar","iso_n":634,"region":"middleeast","home":false,"cable_count":2,"cables":["2Africa","GBI"],"stations":["Doha","Al Khor"]},{"cc":"TH","name":"Thailand","iso_n":764,"region":"seasia","home":false,"cable_count":2,"cables":["SMW4","IEX-IAX"],"stations":["Satun"]},{"cc":"TZ","name":"Tanzania","iso_n":834,"region":"africa","home":false,"cable_count":2,"cables":["2Africa","Essay (EASSy)"],"stations":["Dar es Salaam"]},{"cc":"ZA","name":"South Africa","iso_n":710,"region":"africa","home":false,"cable_count":2,"cables":["2Africa","Essay (EASSy)"],"stations":["Duynefontein","Mtunzini"]},{"cc":"DZ","name":"Algeria","iso_n":12,"region":"africa","home":false,"cable_count":1,"cables":["SMW4"],"stations":["Annaba"]},{"cc":"GH","name":"Ghana","iso_n":288,"region":"africa","home":false,"cable_count":1,"cables":["2Africa"],"stations":["Accra"]},{"cc":"ID","name":"Indonesia","iso_n":360,"region":"seasia","home":false,"cable_count":1,"cables":["SMW5"],"stations":["Medan","Dumai"]},{"cc":"IR","name":"Iran","iso_n":364,"region":"middleeast","home":false,"cable_count":1,"cables":["GBI"],"stations":["Bushehr"]},{"cc":"KM","name":"Comoros","iso_n":174,"region":"africa","home":false,"cable_count":1,"cables":["Essay (EASSy)"],"stations":["Moroni"]},{"cc":"LB","name":"Lebanon","iso_n":422,"region":"middleeast","home":false,"cable_count":1,"cables":["IMEWE"],"stations":["Tripoli"]},{"cc":"LY","name":"Libya","iso_n":434,"region":"africa","home":false,"cable_count":1,"cables":["EIG"],"stations":["Tripoli"]},{"cc":"MG","name":"Madagascar","iso_n":450,"region":"africa","home":false,"cable_count":1,"cables":["Essay (EASSy)"],"stations":["Toliara"]},{"cc":"MM","name":"Myanmar","iso_n":104,"region":"seasia","home":false,"cable_count":1,"cables":["SMW5"],"stations":["Ngwe Saung"]},{"cc":"NG","name":"Nigeria","iso_n":566,"region":"africa","home":false,"cable_count":1,"cables":["2Africa"],"stations":["Lagos"]},{"cc":"SN","name":"Senegal","iso_n":686,"region":"africa","home":false,"cable_count":1,"cables":["2Africa"],"stations":["Dakar"]},{"cc":"SO","name":"Somalia","iso_n":706,"region":"africa","home":false,"cable_count":1,"cables":["Essay (EASSy)"],"stations":["Mogadishu"]},{"cc":"TN","name":"Tunisia","iso_n":788,"region":"africa","home":false,"cable_count":1,"cables":["SMW4"],"stations":["Bizerte"]},{"cc":"TR","name":"Turkey","iso_n":792,"region":"middleeast","home":false,"cable_count":1,"cables":["SMW5"],"stations":["Marmaris"]},{"cc":"YE","name":"Yemen","iso_n":887,"region":"middleeast","home":false,"cable_count":1,"cables":["SMW5"],"stations":["Al Hudaydah"]}]};
+</script>
+<script>
+/* ============ DERIVED LOOKUPS ============ */
+const CABLES   = CABLE_DATA.cables;
+const COUNTRIES= CABLE_DATA.countries;
+const REGIONS  = CABLE_DATA.regions;
+const REACH    = REACH_DATA.countries;
+
+const isoToCC = {};
+Object.entries(COUNTRIES).forEach(([cc,m])=>{ isoToCC[String(m.iso_n)] = cc; });
+const reachByCC = {}; REACH.forEach(r=>reachByCC[r.cc]=r);
+
+function ccColorHex(cc){
+  const m = COUNTRIES[cc];
+  if(!m) return '#3a5f80';
+  if(m.home) return '#ff375e';
+  return REGIONS[m.region].color;
+}
+function cableColorHex(cable){
+  // colour a cable by the region of its most-represented non-KSA landing
+  const tally = {};
+  cable.landings.forEach(l=>{
+    const m = COUNTRIES[l.cc]; if(!m || m.home) return;
+    tally[m.region] = (tally[m.region]||0)+1;
+  });
+  const top = Object.entries(tally).sort((a,b)=>b[1]-a[1])[0];
+  return top ? REGIONS[top[0]].color : '#ff375e';
+}
+
+/* ============ THREE SETUP ============ */
+const app = document.getElementById('app');
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 100);
+camera.position.set(0,0,6.2);
+const renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth, innerHeight);
+app.appendChild(renderer.domElement);
+
+const world = new THREE.Group(); scene.add(world);
+scene.add(new THREE.AmbientLight(0x9c8fb5, 1.35));
+const sun = new THREE.DirectionalLight(0xffffff, .45); sun.position.set(5,3,5); scene.add(sun);
+
+const R = 2;
+function latLon(lat, lon, r){
+  const phi=(90-lat)*Math.PI/180, th=(lon+180)*Math.PI/180;
+  return new THREE.Vector3(-r*Math.sin(phi)*Math.cos(th), r*Math.cos(phi), r*Math.sin(phi)*Math.sin(th));
+}
+
+const globeMat = new THREE.MeshPhongMaterial({shininess:5, specular:0x1a1230,
+  emissive:0x120c22, emissiveIntensity:.55, color:0xffffff});
+const globe = new THREE.Mesh(new THREE.SphereGeometry(R, 96, 96), globeMat);
+world.add(globe);
+
+// atmosphere
+world.add(new THREE.Mesh(new THREE.SphereGeometry(R*1.035,64,64), new THREE.ShaderMaterial({
+  transparent:true, blending:THREE.AdditiveBlending, side:THREE.BackSide,
+  uniforms:{glowColor:{value:new THREE.Color(0xa54ee1)}},
+  vertexShader:`varying vec3 vN; void main(){vN=normalize(normalMatrix*normal);
+    gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+  fragmentShader:`varying vec3 vN; uniform vec3 glowColor; void main(){
+    float i=pow(.62-dot(vN,vec3(0,0,1.)),2.2);
+    gl_FragColor=vec4(glowColor,clamp(i,0.,.5));}`
+})));
+
+// graticule removed (lat/long grid lines)
+
+const bordersGroup = new THREE.Group(); world.add(bordersGroup);
+const cableGroup   = new THREE.Group(); world.add(cableGroup);
+const stationGroup = new THREE.Group(); world.add(stationGroup);
+
+/* ============ GEOGRAPHY ============ */
+let landFeatures = null, countryFeatures = null;
+function ringsOf(g){
+  if(!g) return [];
+  if(g.type==='Polygon') return g.coordinates;
+  if(g.type==='MultiPolygon') return g.coordinates.flat();
+  return [];
+}
+function pathFrom(feats, ctx, W, H){
+  const p = new Path2D();
+  feats.forEach(f=>ringsOf(f.geometry).forEach(ring=>{
+    let prevLon=null;
+    ring.forEach(([lon,lat],i)=>{
+      const x=(lon+180)/360*W, y=(90-lat)/180*H;
+      // start a new subpath across the antimeridian so a polygon that wraps
+      // from +180° to -180° doesn't draw a stripe spanning the whole map
+      if(i===0 || (prevLon!==null && Math.abs(lon-prevLon)>180)) p.moveTo(x,y);
+      else p.lineTo(x,y);
+      prevLon=lon;
+    });
+    p.closePath();
+  }));
+  return p;
+}
+
+function buildTexture(highlightSet){
+  const W=2048,H=1024;
+  const c=document.createElement('canvas'); c.width=W; c.height=H;
+  const ctx=c.getContext('2d');
+
+  // ocean: deep onyx-purple
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#2b1b4d'); g.addColorStop(.5,'#1d1435'); g.addColorStop(1,'#141020');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+
+  // landmass: silver dot matrix, merged outline so no internal borders show
+  ctx.save();
+  ctx.clip(pathFrom(landFeatures, ctx, W, H),'evenodd');
+  for(let y=6;y<H;y+=13) for(let x=6;x<W;x+=13){
+    const s=.5+Math.random()*.35;
+    ctx.beginPath();
+    ctx.fillStyle=`rgba(${(142*s)|0},${(154*s)|0},${(160*s)|0},.1)`;
+    ctx.arc(x+(Math.random()-.5)*7, y+(Math.random()-.5)*7, 1.05+Math.random()*.3, 0, 6.284);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  if(!showFill){ const t0=new THREE.CanvasTexture(c); t0.anisotropy=4; return t0; }
+
+  // countries we reach: soft light-purple wash. Saudi Arabia: coral.
+  ctx.lineJoin='round'; ctx.lineCap='round';
+  countryFeatures.forEach(f=>{
+    const cc = isoToCC[String(f.id)];
+    const path = pathFrom([f], ctx, W, H);
+    // a country counts as "reached" only if it's served by the focused cable
+    // (or no cable is focused); everything else falls back to the base purple
+    const reached = cc && reachByCC[cc] && (!highlightSet || highlightSet.has(cc));
+    if(reached){
+      const home = COUNTRIES[cc].home;
+      ctx.fillStyle = home
+        ? 'rgba(255,55,94,.58)'
+        : 'rgba(236,158,238,.36)';
+      ctx.fill(path,'evenodd');
+      // hairline outline — highlighted countries only
+      ctx.lineWidth = home ? .8 : .5;
+      ctx.strokeStyle = home
+        ? 'rgba(255,120,150,.95)'
+        : 'rgba(233,150,235,.72)';
+      ctx.stroke(path);
+    } else {
+      // unreached (or not on the selected cable): darker muted purple, no outline
+      ctx.fillStyle = 'rgba(120,88,175,.5)';
+      ctx.fill(path,'evenodd');
+    }
+  });
+
+  const t=new THREE.CanvasTexture(c); t.anisotropy=4; return t;
+}
+
+function lineSegs(feats, color, opacity, radius){
+  const pos=[];
+  feats.forEach(f=>ringsOf(f.geometry).forEach(ring=>{
+    for(let i=0;i<ring.length-1;i++){
+      if(Math.abs(ring[i][0]-ring[i+1][0])>180) continue; // skip antimeridian-wrapping segment
+      const a=latLon(ring[i][1],ring[i][0],radius), b=latLon(ring[i+1][1],ring[i+1][0],radius);
+      pos.push(a.x,a.y,a.z,b.x,b.y,b.z);
+    }
+  }));
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+  return new THREE.LineSegments(geo, new THREE.LineBasicMaterial({color, transparent:true, opacity}));
+}
+
+function rebuildGeo(){
+  if(!landFeatures) return;
+  globe.material.map = buildTexture(focusSet);
+  globe.material.needsUpdate = true;
+  bordersGroup.clear();
+  // outer coastline only — no country strokes
+  bordersGroup.add(lineSegs(landFeatures, 0x8e9aa0, .28, R*1.003));
+}
+
+async function loadGeo(){
+  const status = document.getElementById('geoStatus');
+  try{
+    const topo = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json').then(r=>r.json());
+    const fc = o => { const g=topojson.feature(topo,o); return g.type==='FeatureCollection'?g.features:[g]; };
+    landFeatures    = fc(topo.objects.land);
+    countryFeatures = fc(topo.objects.countries);
+
+    const found = countryFeatures.filter(f=>reachByCC[isoToCC[String(f.id)]]).length;
+    rebuildGeo();
+    if(window.__refreshChoke) window.__refreshChoke();  // redraw mini-map coastlines
+    status.textContent = `geography loaded · ${found}/${REACH.length} countries mapped`;
+    setTimeout(()=>status.style.opacity='0', 3000);
+  }catch(e){
+    console.warn(e);
+    status.textContent = 'geography unavailable (offline)';
+  }
+}
+
+/* ============ CABLES ============ */
+const TG_GEO = 'https://www.submarinecablemap.com/api/v3/cable/cable-geo.json';
+
+function slerp(a,b,t){
+  const A=a.clone().normalize(), B=b.clone().normalize();
+  const d=THREE.MathUtils.clamp(A.dot(B),-1,1), th=Math.acos(d);
+  if(th<1e-5) return A;
+  const s=Math.sin(th);
+  return A.multiplyScalar(Math.sin((1-t)*th)/s).add(B.multiplyScalar(Math.sin(t*th)/s));
+}
+
+/* Modelled geometry: follow the explicit sea-routed polyline in cables.json.
+   Cables lie ON the seabed, so these hug the sphere instead of arcing over it.
+   Great-circle densification between waypoints keeps long legs smooth. */
+function densify(a, b){
+  const A=latLon(a[1],a[0],1), B=latLon(b[1],b[0],1);
+  const th=Math.acos(THREE.MathUtils.clamp(A.dot(B),-1,1));
+  const n=Math.max(2, Math.round(th*36));
+  const out=[];
+  for(let i=0;i<n;i++) out.push(slerp(A,B,i/n));
+  return out;
+}
+function segPoints(coords, lift){
+  const v=[];
+  for(let i=0;i<coords.length-1;i++) v.push(...densify(coords[i],coords[i+1]));
+  const last=coords[coords.length-1];
+  v.push(latLon(last[1],last[0],1).normalize());
+  return v.map(p=>p.clone().normalize().multiplyScalar(R*lift));
+}
+
+/* Real geometry: a TeleGeography LineString ([lon,lat] pairs) laid onto the sphere.
+   Coordinates cross the antimeridian, so split runs that jump >180deg. */
+function realLines(coordsArr){
+  const out=[];
+  coordsArr.forEach(line=>{
+    let run=[];
+    for(let i=0;i<line.length;i++){
+      const [lon,lat]=line[i];
+      if(i>0 && Math.abs(lon-line[i-1][0])>180){ if(run.length>1) out.push(run); run=[]; }
+      run.push(latLon(lat,lon,R*1.0035));
+    }
+    if(run.length>1) out.push(run);
+  });
+  return out;
+}
+
+/* Cable material: the tube's UV.x runs along its length, so a moving band in the
+   fragment shader reads as a pulse of light travelling *inside* the cable.
+   uStart/uSpan place this mesh within its parent cable so pulses flow continuously
+   across segment boundaries instead of restarting at each one. */
+function cableMaterial(col){
+  return new THREE.ShaderMaterial({
+    transparent:true, blending:THREE.AdditiveBlending, depthWrite:false,
+    uniforms:{
+      uColor:{value:new THREE.Color(col)},
+      uTime:{value:0}, uStart:{value:0}, uSpan:{value:1},
+      uOpacity:{value:1}, uSpeed:{value:0.12}, uCount:{value:3}, uBase:{value:0.46}
+    },
+    vertexShader:`
+      varying vec2 vUv;
+      void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader:`
+      varying vec2 vUv;
+      uniform vec3 uColor;
+      uniform float uTime,uStart,uSpan,uOpacity,uSpeed,uCount,uBase;
+      void main(){
+        float s = uStart + vUv.x * uSpan;
+        float p = fract(s * uCount - uTime * uSpeed);
+        // distance to the nearest pulse centre, wrapping at the cell edge
+        float d = min(p, 1.0 - p);
+        // tight core + soft halo => a small circle of light, not a long streak.
+        // uCount scales with cable length, so these widths are a constant
+        // physical size on every cable regardless of how long it is.
+        float core = exp(-(d*d)/(2.0*0.016*0.016));
+        float halo = exp(-(d*d)/(2.0*0.050*0.050)) * 0.30;
+        float glow = core + halo;
+        vec3 col = mix(uColor, vec3(1.0), core*0.80);
+        gl_FragColor = vec4(col * (uBase + glow*2.3), (uBase + glow) * uOpacity);
+      }`
+  });
+}
+
+function tubeFrom(points, col, radius){
+  if(!points || points.length<2) return null;
+  const curve=new THREE.CatmullRomCurve3(points);
+  return new THREE.Mesh(
+    new THREE.TubeGeometry(curve, Math.min(400, Math.max(8, points.length*2)), radius, 5, false),
+    cableMaterial(col)
+  );
+}
+
+/* Approximate polyline length, used to distribute uStart/uSpan along a cable. */
+function polyLen(pts){
+  let L=0;
+  for(let i=0;i<pts.length-1;i++){
+    const a=pts[i], b=pts[i+1];
+    L += Math.hypot(a.x-b.x, a.y-b.y, a.z-b.z);
+  }
+  return L;
+}
+/* Assign each mesh its position along the parent cable so pulses run end to end. */
+function chainPulse(meshes, lengths){
+  const total = lengths.reduce((s,v)=>s+v,0) || 1;
+  let acc=0;
+  meshes.forEach((m,i)=>{
+    if(!m || !m.material.uniforms) return;
+    m.material.uniforms.uStart.value = acc/total;
+    m.material.uniforms.uSpan.value  = lengths[i]/total;
+    acc += lengths[i];
+  });
+  return total;
+}
+
+const cableObjs = [];
+const stationByName = {};
+CABLES.forEach(c=>c.landings.forEach(l=>{ stationByName[c.id+'|'+l.station]=l; }));
+
+/* Build modelled geometry immediately so something renders at once. */
+const TERR_COL = new THREE.Color(0xffdd40);
+CABLES.forEach(cable=>{
+  const col=new THREE.Color(cableColorHex(cable));
+  const grp=new THREE.Group();
+  const meshes=[], lens=[];
+  cable.segments.forEach(s=>{
+    const terr = s.type==='terrestrial';
+    const pts = segPoints(s.coords, terr ? 1.0065 : 1.0035);
+    const m = tubeFrom(pts, terr?TERR_COL:col, terr?.0042:.0056);
+    if(!m) return;
+    m.userData.terrestrial = terr;
+    if(terr){ m.material.uniforms.uBase.value = 0.58; }
+    grp.add(m); meshes.push(m); lens.push(polyLen(pts));
+  });
+  cableGroup.add(grp);
+  // longer systems get proportionally more pulses in flight
+  const total = chainPulse(meshes, lens);
+  meshes.forEach(m=>{
+    m.material.uniforms.uCount.value = Math.max(2, Math.round(total*1.6));
+    m.material.uniforms.uSpeed.value = 0.10 + Math.random()*0.04;
+  });
+  cableObjs.push({cable, grp, col, real:false, meshes});
+});
+
+/* Then try to upgrade to surveyed TeleGeography routes. */
+function normalize(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
+function matchesCable(feature, cable){
+  const id=normalize(feature.properties && feature.properties.id);
+  const nm=normalize(feature.properties && feature.properties.name);
+  return cable.tg_match.some(p=>{
+    const q=normalize(p);
+    return id===q || nm===q || id.startsWith(q) || nm.startsWith(q);
+  });
+}
+
+async function loadRealRoutes(){
+  const status=document.getElementById('routeStatus');
+  try{
+    const fc = await fetch(TG_GEO).then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); });
+    let upgraded=0;
+    cableObjs.forEach(o=>{
+      const feats = fc.features.filter(f=>matchesCable(f, o.cable));
+      if(!feats.length) return;
+      const lines=[];
+      feats.forEach(f=>{
+        const g=f.geometry;
+        if(!g) return;
+        if(g.type==='MultiLineString') lines.push(...g.coordinates);
+        else if(g.type==='LineString')  lines.push(g.coordinates);
+      });
+      if(!lines.length) return;
+      const grp=new THREE.Group();
+      const meshes=[], lens=[];
+      realLines(lines).forEach(pts=>{
+        const m=tubeFrom(pts, o.col, .0054);
+        if(m){ grp.add(m); meshes.push(m); lens.push(polyLen(pts)); }
+      });
+      if(!grp.children.length) return;
+      const tot = chainPulse(meshes, lens);
+      meshes.forEach(m=>{
+        m.material.uniforms.uCount.value = Math.max(2, Math.round(tot*1.6));
+        m.material.uniforms.uSpeed.value = 0.10 + Math.random()*0.04;
+      });
+      o.meshes = meshes;
+      cableGroup.remove(o.grp);
+      o.grp.traverse(c=>{ if(c.geometry) c.geometry.dispose(); });
+      o.grp=grp; o.real=true;
+      cableGroup.add(grp);
+      upgraded++;
+    });
+    applyFocus();
+    if(status){
+      status.textContent = upgraded
+        ? `surveyed routes: ${upgraded}/${CABLES.length} systems`
+        : 'using modelled routes';
+      setTimeout(()=>status.style.opacity='0', 4000);
+    }
+    document.querySelectorAll('.cable-item').forEach((el,i)=>{
+      el.querySelector('.geo').textContent = cableObjs[i].real ? 'surveyed' : 'modelled';
+      el.querySelector('.geo').style.color = cableObjs[i].real ? '#1bced8' : '#5b6970';
+    });
+  }catch(e){
+    console.warn('TeleGeography route fetch failed, keeping modelled routes:', e);
+    if(status){ status.textContent='modelled routes (live source blocked)'; }
+  }
+}
+
+/* station markers *//* station markers */
+function dotTex(hex){
+  const c=document.createElement('canvas'); c.width=c.height=128;
+  const x=c.getContext('2d');
+  const g=x.createRadialGradient(64,64,0,64,64,64);
+  g.addColorStop(0,hex+'ff'); g.addColorStop(.25,hex+'cc'); g.addColorStop(1,hex+'00');
+  x.fillStyle=g; x.beginPath(); x.arc(64,64,64,0,6.284); x.fill();
+  x.fillStyle=hex; x.beginPath(); x.arc(64,64,12,0,6.284); x.fill();
+  return new THREE.CanvasTexture(c);
+}
+
+const texCache = {};
+const stations = [];
+const stationIndex = {};
+CABLES.forEach(cable=>{
+  cable.landings.forEach(l=>{
+    const key = l.station+'|'+l.cc;
+    if(stationIndex[key]){
+      if(!stationIndex[key].cables.includes(cable.name)) stationIndex[key].cables.push(cable.name);
+      return;
+    }
+    const hex = '#ffffff';
+    texCache[hex] = texCache[hex] || dotTex(hex);
+    const spr = new THREE.Sprite(new THREE.SpriteMaterial({map:texCache[hex], transparent:true,
+      depthWrite:false, blending:THREE.AdditiveBlending}));
+    spr.position.copy(latLon(l.lat, l.lon, R*1.008));
+    const home = COUNTRIES[l.cc].home;
+    spr.userData = { station:l.station, cc:l.cc, country:COUNTRIES[l.cc].name,
+      cables:[cable.name], base: home?.085:.062, phase:Math.random()*6.28 };
+    spr.scale.setScalar(spr.userData.base);
+    stationGroup.add(spr);
+    stations.push(spr);
+    stationIndex[key] = spr.userData;
+  });
+});
+
+/* ============ UI ============ */
+let focusCable = null;   // index into CABLES
+let focusCableName = null;
+let focusSet   = null;   // Set of cc codes, or null = all
+let showFill   = true;
+let autoRotate = false;
+
+const $ = id => document.getElementById(id);
+function setStats(countries, stations, cables, km){
+  $('sCountries').textContent = countries;
+  $('sStations').textContent  = stations;
+  $('sCables').textContent    = cables;
+  $('sKm').textContent        = Math.round(km/1000)+'k';
+}
+// Reachability stats reflect the focused cable, or the full network when none is selected
+function updateStats(){
+  if(focusCable===null){
+    setStats(REACH_DATA.summary.countries_reachable, REACH_DATA.summary.landing_stations,
+             REACH_DATA.summary.cable_systems, REACH_DATA.summary.total_route_km);
+  } else {
+    const cable = CABLES[focusCable];
+    const countries = new Set(cable.landings.map(l=>l.cc)).size;
+    const stationN  = new Set(cable.landings.map(l=>l.station+'|'+l.cc)).size;
+    setStats(countries, stationN, 1, cable.length_km);
+  }
+  renderCapacity();
+}
+updateStats();
+$('nCables').textContent    = CABLES.length;
+$('nStations').textContent  = stations.length;
+$('cableCount').textContent = CABLES.length;
+$('ctryCount').textContent  = REACH.length;
+
+// legend
+$('legend').innerHTML =
+  `<div class="item"><span class="d" style="background:#ff375e;color:#ff375e"></span>Saudi Arabia</div>` +
+  `<div class="item"><span class="d" style="background:#be8cf5;color:#be8cf5"></span>Reached</div>` +
+  `<div class="item"><span class="d" style="background:#8e9aa0;color:#8e9aa0;box-shadow:none"></span>Not reached</div>` +
+  `<div class="item"><span class="d" style="background:#ffffff;color:#ffffff;border-radius:50%"></span>Landing station</div>` +
+  `<div class="item"><span class="d" style="background:#ffdd40;color:#ffdd40;border-radius:1px;width:14px;height:3px"></span>Terrestrial</div>` +
+  `<div class="item" style="opacity:.7">cable colour =</div>` +
+  Object.entries(REGIONS).map(([k,v])=>
+    `<div class="item"><span class="d" style="background:${v.color};color:${v.color}"></span>${v.label}</div>`
+  ).join('');
+
+// cable list
+const cableListEl = $('cableList');
+CABLES.forEach((cable, i)=>{
+  const col = cableColorHex(cable);
+  const ccs = new Set(cable.landings.map(l=>l.cc));
+  const el = document.createElement('div');
+  el.className='cable-item';
+  el.innerHTML = `<div class="bar" style="background:${col};box-shadow:0 0 6px ${col}"></div>
+    <div class="info"><div class="name">${cable.name}</div>
+    <div class="meta">${cable.length_km.toLocaleString()} km · ${cable.landings.length} landings · ${ccs.size} countries · <span class="geo" style="color:#5b6970">modelled</span></div></div>
+    <div class="badge">${cable.rfs}</div>`;
+  el.onclick = ()=>{
+    focusCable = (focusCable===i) ? null : i;
+    focusCableName = focusCable===null ? null : CABLES[focusCable].name;
+    focusSet = focusCable===null ? null : new Set(CABLES[focusCable].landings.map(l=>l.cc));
+    [...cableListEl.children].forEach(c=>c.classList.remove('focused'));
+    if(focusCable!==null) el.classList.add('focused');
+    $('clearBtn').classList.toggle('show', focusCable!==null);
+    applyFocus();
+  };
+  cableListEl.appendChild(el);
+});
+$('clearBtn').onclick = ()=>{
+  focusCable=null; focusCableName=null; focusSet=null;
+  [...cableListEl.children].forEach(c=>c.classList.remove('focused'));
+  $('clearBtn').classList.remove('show');
+  applyFocus();
+};
+
+/* cable filter — live search over name / full name / owner */
+$('cableCount').textContent = CABLES.length;
+const cableFilterEl = $('cableFilter');
+cableFilterEl.addEventListener('input', ()=>{
+  const q = cableFilterEl.value.trim().toLowerCase();
+  let shown = 0;
+  [...cableListEl.children].forEach((el, i)=>{
+    const c = CABLES[i];
+    const hay = (c.name + ' ' + c.full_name + ' ' + c.owner).toLowerCase();
+    const match = !q || hay.includes(q);
+    el.style.display = match ? '' : 'none';
+    if(match) shown++;
+  });
+  $('cableCount').textContent = q ? shown + '/' + CABLES.length : CABLES.length;
+});
+
+// country list
+const ctryListEl = $('ctryList');
+REACH.forEach(r=>{
+  const col = r.home ? '#ff375e' : '#be8cf5';
+  const el = document.createElement('div');
+  el.className = 'ctry-item' + (r.home?' home':'');
+  el.innerHTML = `<div class="sw" style="background:${col};box-shadow:0 0 6px ${col}"></div>
+    <div class="info"><div class="name">${r.name}</div>
+    <div class="meta">${r.stations.length} station${r.stations.length>1?'s':''} · ${r.cables.join(', ')}</div></div>
+    <div class="badge">${r.cable_count}</div>`;
+  el.dataset.cc = r.cc;
+  ctryListEl.appendChild(el);
+});
+
+function applyFocus(){
+  cableObjs.forEach((o,i)=>{
+    const on = chkCables.checked;
+    const dim = focusCable!==null && focusCable!==i;
+    o.grp.visible = on;
+    o.grp.children.forEach(m=>{
+      if(!m.isMesh) return;
+      if(m.material.uniforms) m.material.uniforms.uOpacity.value = dim ? .10 : 1;
+      else m.material.opacity = dim ? .07 : .7;
+    });
+  });
+  stations.forEach(s=>{
+    // with a cable selected, only that cable's landing stations stay lit
+    const inFocus = !focusCableName || s.userData.cables.includes(focusCableName);
+    s.material.opacity = inFocus ? 1 : .06;
+    s.userData.active = inFocus;
+  });
+  [...ctryListEl.children].forEach(el=>{
+    el.style.opacity = (!focusSet || focusSet.has(el.dataset.cc)) ? 1 : .28;
+  });
+  updateStats();
+  rebuildGeo();
+}
+
+const chkCables=$('chkCables'), chkStations=$('chkStations'),
+      chkFill=$('chkFill'), chkLabels=$('chkLabels');
+chkCables.onchange = ()=>{ cableGroup.visible = chkCables.checked; applyFocus(); };
+chkStations.onchange= ()=>{ stationGroup.visible = chkStations.checked; };
+chkFill.onchange    = ()=>{ showFill = chkFill.checked; rebuildGeo(); };
+chkLabels.onchange  = ()=>{ autoRotate = chkLabels.checked; };
+
+/* ============ INTERACTION ============ */
+let dragging=false, lastX=0, lastY=0, vX=0, vY=0;
+let rotX=.22, rotY=.9;
+const ndc = new THREE.Vector2(-10,-10), mouse={x:0,y:0};
+const ray = new THREE.Raycaster(); ray.params.Sprite={threshold:.05};
+
+renderer.domElement.addEventListener('pointerdown', e=>{dragging=true;lastX=e.clientX;lastY=e.clientY;});
+addEventListener('pointerup', ()=>dragging=false);
+addEventListener('pointermove', e=>{
+  if(dragging){
+    vY=(e.clientX-lastX)*.0045; vX=(e.clientY-lastY)*.0045;
+    rotY+=vY; rotX=THREE.MathUtils.clamp(rotX+vX,-1.1,1.1);
+    lastX=e.clientX; lastY=e.clientY;
+  }
+  ndc.x=(e.clientX/innerWidth)*2-1; ndc.y=-(e.clientY/innerHeight)*2+1;
+  mouse.x=e.clientX; mouse.y=e.clientY;
+});
+renderer.domElement.addEventListener('wheel', e=>{
+  e.preventDefault();
+  camera.position.z = THREE.MathUtils.clamp(camera.position.z + e.deltaY*.0022, 3.2, 11);
+},{passive:false});
+addEventListener('resize', ()=>{
+  camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+const tip = $('tooltip');
+function showTip(u,x,y){
+  tip.innerHTML = `<div class="t-type">Landing station · ${u.cc}</div>
+    <div class="t-title">${u.station}</div>
+    <div class="t-row"><b>${u.country}</b><br>${u.cables.map(n=>
+       n===focusCableName ? `<span style="color:#ff375e">${n}</span>` : n).join('<br>')}</div>`;
+  tip.style.left=(x+16)+'px'; tip.style.top=(y+16)+'px';
+  tip.classList.add('show');
+}
+
+/* clock */
+setInterval(()=>{
+  const d=new Date();
+  $('clockTime').textContent = d.toUTCString().slice(17,25)+' UTC';
+  $('clockDate').textContent = d.toDateString();
+},1000);
+
+/* ============ LOOP ============ */
+const clock = new THREE.Clock();
+(function animate(){
+  requestAnimationFrame(animate);
+  const dt=clock.getDelta(), t=clock.getElapsedTime();
+  if(!dragging){
+    vX*=.92; vY*=.92; rotY+=vY; rotX=THREE.MathUtils.clamp(rotX+vX,-1.1,1.1);
+    if(autoRotate) rotY += dt*.05;
+  }
+  world.rotation.x=rotX; world.rotation.y=rotY;
+
+  cableObjs.forEach(o=>o.grp.children.forEach(m=>{
+    if(m.material && m.material.uniforms) m.material.uniforms.uTime.value = t;
+  }));
+
+  stations.forEach(s=>{
+    s.scale.setScalar(s.userData.base*(1+.16*Math.sin(t*2.1+s.userData.phase)));
+  });
+
+  ray.setFromCamera(ndc, camera);
+  const hits = stationGroup.visible
+    ? ray.intersectObjects(stations.filter(s=>s.userData.active!==false), false) : [];
+  if(hits.length){ showTip(hits[0].object.userData, mouse.x, mouse.y); document.body.style.cursor='pointer'; }
+  else { tip.classList.remove('show'); document.body.style.cursor = dragging?'grabbing':'grab'; }
+
+  renderer.render(scene, camera);
+})();
+
+/* ============ NETWORK STATUS / FAULT REGISTER ============ */
+/* Illustrative telemetry — swap for a live NOC feed. Locations reference real
+   cables and the three monitored chokepoints. */
+const FAULTS = [
+  {sev:'critical', cable:'SMW4',    desc:'Fibre break — shunt fault located', loc:'Suez overland, EG',   status:'Repair ship en route', eta:'ETA 41h', age:'2h ago'},
+  {sev:'major',    cable:'EIG',     desc:'Elevated span loss, protection active', loc:'Bab al-Mandab',   status:'Investigating',        eta:'',        age:'5h ago'},
+  {sev:'minor',    cable:'2Africa', desc:'PFE power alarm (BU-3), auto-restored', loc:'Ras Ghareb, EG',   status:'Monitoring',           eta:'',        age:'9h ago'},
+  {sev:'minor',    cable:'GBI',     desc:'Intermittent Q-factor dip on span', loc:'Strait of Hormuz',    status:'Monitoring',           eta:'',        age:'1d ago'},
+  {sev:'resolved', cable:'IMEWE',   desc:'Landing-station power restored',    loc:'Fujairah, AE',        status:'Resolved',             eta:'',        age:'2d ago'},
+  {sev:'resolved', cable:'SMW5',    desc:'Cut repaired, traffic normalised',  loc:'Yanbu, SA',           status:'Resolved',             eta:'',        age:'3d ago'},
+];
+function faultStatusFor(cableName){
+  const f = FAULTS.find(x=>x.cable===cableName && x.sev!=='resolved');
+  return f ? f.sev : 'ok';
+}
+function statusMeta(s){
+  return s==='critical' ? {txt:'DEGRADED', col:'#ff4d6d'}
+       : s==='major'    ? {txt:'ALERT',    col:'#ff8a4d'}
+       : s==='minor'    ? {txt:'WATCH',    col:'#ffd34d'}
+       :                  {txt:'OK',       col:'#00c48c'};
+}
+function renderFaults(){
+  const active = FAULTS.filter(f=>f.sev!=='resolved');
+  const worst = active.some(f=>f.sev==='critical') ? 'critical'
+              : active.some(f=>f.sev==='major')    ? 'major'
+              : active.some(f=>f.sev==='minor')    ? 'minor' : 'ok';
+  const pill = worst==='critical' ? {cls:'critical', txt:'DEGRADED'}
+             : worst==='major'    ? {cls:'degraded', txt:'DEGRADED'}
+             : worst==='minor'    ? {cls:'degraded', txt:'MINOR ALERTS'}
+             :                      {cls:'ok',       txt:'OPERATIONAL'};
+  const np = $('netStatus'); np.className = 'statuspill '+pill.cls; np.textContent = pill.txt;
+  $('fActive').textContent = active.length;
+  $('fCables').textContent = new Set(active.map(f=>f.cable)).size;
+  const drop = active.reduce((a,f)=>a+(f.sev==='critical'?0.6:f.sev==='major'?0.2:0.05),0);
+  $('fAvail').textContent = (100-drop).toFixed(1)+'%';
+  $('faultList').innerHTML = FAULTS.map(f=>{
+    const label = f.sev==='resolved' ? 'RESOLVED' : f.sev.toUpperCase();
+    return `<div class="fault ${f.sev}">
+      <div class="fmain">
+        <div class="fcable">${f.cable} <span class="ftag">${label}</span></div>
+        <div class="fdesc">${f.desc}</div>
+        <div class="floc">${f.loc}</div>
+      </div>
+      <div class="fmeta">${f.age}${f.eta?'<br>'+f.eta:''}<br><span class="fst">${f.status}</span></div>
+    </div>`;
+  }).join('');
+}
+
+/* ============ NETWORK CAPACITY (test figures) ============ */
+/* Per-system capacity [westbound, eastbound] in Tbps. These sum to the stated
+   network totals: 70 Tbps total · 40 westbound · 30 eastbound. Swap for live data. */
+window.CAP = {
+  'mena':[2,2], 'smw4':[3,2], 'smw5':[5,3], 'svc':[2,1], '2africa':[6,4], 'eig':[3,2],
+  'imewe':[4,3], 'sas1':[1,1], 'sas2':[0,1], 'iex-iax':[5,4], 'emc-west-1':[3,2],
+  'emc-west-2':[3,2], 'gbi':[2,1], 'eassy':[1,2]
+};
+(function(){
+  const nm={}; CABLES.forEach(c=>nm[c.id]=c.name);
+  let w=0,e=0,imp=0,loss=0;
+  Object.keys(window.CAP).forEach(id=>{
+    const cw=window.CAP[id][0], ce=window.CAP[id][1]; w+=cw; e+=ce;
+    const f=FAULTS.find(x=>x.cable===nm[id] && x.sev!=='resolved'); const sev=f?f.sev:'ok';
+    const tot=cw+ce;
+    imp  += tot*(sev==='critical'?1:sev==='major'?0.5:sev==='minor'?0.2:0);
+    loss += tot*(sev==='critical'?0.1:sev==='major'?0.05:sev==='minor'?0.01:0);
+  });
+  window.NET_W=w; window.NET_E=e; window.NET_IMP=imp; window.NET_AVAIL=(w+e)?(1-loss/(w+e))*100:100;
+})();
+function renderCapacity(){
+  if(!window.CAP) return;
+  let west,east,label,impacted,avail;
+  if(focusCable===null){
+    west=window.NET_W; east=window.NET_E; label='whole network';
+    impacted=window.NET_IMP; avail=window.NET_AVAIL;
+  } else {
+    const c=CABLES[focusCable], cap=window.CAP[c.id]||[0,0];
+    west=cap[0]; east=cap[1]; label=c.name;
+    const f=FAULTS.find(x=>x.cable===c.name && x.sev!=='resolved'), sev=f?f.sev:'ok', tot=west+east;
+    impacted=tot*(sev==='critical'?1:sev==='major'?0.5:sev==='minor'?0.2:0);
+    const lf=(sev==='critical'?0.1:sev==='major'?0.05:sev==='minor'?0.01:0);
+    avail=tot?(1-lf)*100:100;
+  }
+  const total=west+east, wpct=total?west/total*100:0, epct=total?east/total*100:0, ipct=total?impacted/total*100:0;
+  const set=(id,v)=>{const el=$(id); if(el) el.textContent=v;};
+  const wid=(id,v)=>{const el=$(id); if(el) el.style.width=v;};
+  set('capScope',label);
+  set('capTotal',total);
+  set('capWest',west); set('capEast',east);
+  set('capImpact',impacted.toFixed(1));
+  set('capAvail',avail.toFixed(1)+'%');
+  set('capWpct',Math.round(wpct)+'%'); set('capEpct',Math.round(epct)+'%');
+  set('capImpactPct',Math.round(ipct)+'%');
+  wid('capTotalW',wpct.toFixed(1)+'%'); wid('capTotalE',epct.toFixed(1)+'%');
+  wid('capImpactBar',Math.min(100,ipct).toFixed(1)+'%');
+  const arc=(id,pct,col)=>{const el=$(id); if(el){
+    el.setAttribute('stroke-dasharray', Math.max(0,Math.min(100,pct)).toFixed(1)+' 100');
+    if(col) el.setAttribute('stroke',col);
+  }};
+  arc('capWArc',wpct);
+  arc('capEArc',epct);
+  arc('capArc',avail, avail>=99.5?'#00c48c':avail>=98?'#8fd14f':avail>=95?'#ffd34d':'#ff6a39');
+}
+renderCapacity();
+
+/* ============ CHOKEPOINT MONITOR ============ */
+/* Only center3-landed/partner systems that PHYSICALLY transit each chokepoint.
+   Egypt: the trans-Egypt land crossing (real Med/Red-Sea landing pairs from
+   submarinenetworks.com) with a primary + a diverse protection route per system.
+   Bab al-Mandab & Hormuz: the in-water passage, single status per system. */
+const CBL_COL = { mena:'#ff8a4d', smw4:'#28d1db', smw5:'#b06bec', '2africa':'#ff4d6d',
+                  eig:'#00c48c', imewe:'#ffd34d', 'iex-iax':'#5b9cff' };
+
+// Accurate Egypt Med / Red-Sea landing pairs (submarinenetworks.com, Telecom Egypt)
+const EGYPT = {
+  bbox:[28.5,34.2,27.8,31.8],
+  stn:{ 'Abu Talat':[29.66,30.98],'Alexandria':[29.92,31.20],'Sidi Kerir':[29.62,30.96],'Port Said':[32.30,31.26],
+        'Zafarana':[32.65,29.10],'Suez':[32.55,29.97],'Hod elDars':[32.92,28.72],'Ras Ghareb':[33.11,28.35] },
+  cables:[
+    {id:'mena',   name:'MENA',   med:'Abu Talat', rs:'Zafarana',   p:'ok',       prot:'ok'},
+    {id:'smw4',   name:'SMW4',   med:'Alexandria',rs:'Suez',       p:'critical', prot:'ok'},
+    {id:'smw5',   name:'SMW5',   med:'Abu Talat', rs:'Zafarana',   p:'ok',       prot:'ok'},
+    {id:'imewe',  name:'IMEWE',  med:'Alexandria',rs:'Hod elDars', p:'ok',       prot:'ok'},
+    {id:'eig',    name:'EIG',    med:'Abu Talat', rs:'Zafarana',   p:'ok',       prot:'ok'},
+    {id:'2africa',name:'2Africa',med:'Port Said', rs:'Ras Ghareb', p:'minor',    prot:'ok'},
+    {id:'iex-iax',name:'IEX-IAX',med:'Sidi Kerir',rs:'Zafarana',   p:'ok',       prot:'ok'},
+  ],
+  blurb:'Med ⇄ Red Sea landbridge. Each system runs a primary and a diverse protection crossing between its real landing stations.'
+};
+
+// In-water chokepoints — only center3 systems that actually transit
+const SEA_CHOKES = {
+  babelmandeb:{ label:'Bab al-Mandab', bbox:[40.2,46.0,9.3,16.6],
+    cables:{mena:'ok', smw4:'ok', smw5:'ok', '2africa':'ok', eig:'major', imewe:'ok', 'iex-iax':'ok'},
+    blurb:'Red Sea ⇄ Gulf of Aden strait — every Europe–Asia system on the Red Sea route passes here.' },
+  hormuz:{ label:'Strait of Hormuz', bbox:[49.0,60.6,21.8,30.6],
+    cables:{'2africa':'ok'},
+    blurb:'Gulf of Oman ⇄ Arabian Gulf gateway. 2Africa is the only center3 system transiting Hormuz to reach the GCC landings.' },
+};
+let currentChokeKey = 'egypt';
+const cableById = {}; CABLES.forEach(c=>cableById[c.id]=c);
+
+function inBox(lon,lat,b,m=0){ return lon>=b[0]-m && lon<=b[1]+m && lat>=b[2]-m && lat<=b[3]+m; }
+function projector(b,W,H){
+  const midLat=(b[2]+b[3])/2, cosL=Math.cos(midLat*Math.PI/180);
+  const dlon=(b[1]-b[0])*cosL, dlat=(b[3]-b[2]);
+  const scale=Math.min(W/dlon, H/dlat)*0.9;
+  const clon=(b[0]+b[1])/2, clat=(b[2]+b[3])/2, cx=W/2, cy=H/2;
+  return (lon,lat)=>[ cx+(lon-clon)*cosL*scale, cy-(lat-clat)*scale ];
+}
+function routePaths(cable,proj,b,m){
+  const out=[];
+  cable.segments.forEach(seg=>{
+    let d='', drawing=false;
+    for(let i=0;i<seg.coords.length;i++){
+      const c=seg.coords[i], cn=seg.coords[i+1];
+      const near = inBox(c[0],c[1],b,m) || (cn && inBox(cn[0],cn[1],b,m));
+      if(near){ const [x,y]=proj(c[0],c[1]); d+=(drawing?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)+' '; drawing=true; }
+      else drawing=false;
+    }
+    if(d) out.push(d);
+  });
+  return out;
+}
+function landPath(proj,b){
+  if(!landFeatures) return '';
+  const m=3; let d='';
+  landFeatures.forEach(f=>ringsOf(f.geometry).forEach(ring=>{
+    if(!ring.some(p=>inBox(p[0],p[1],b,m))) return;
+    ring.forEach((p,i)=>{ const [x,y]=proj(p[0],p[1]); d+=(i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)+' '; });
+    d+='Z ';
+  }));
+  return d;
+}
+function stMeta(s){
+  return s==='critical' ? {t:'DEGRADED', c:'#ff4d6d'} : s==='major' ? {t:'DEGRADED', c:'#ff8a4d'}
+       : s==='minor' ? {t:'WATCH', c:'#ffd34d'} : {t:'OK', c:'#00c48c'};
+}
+function bowPath(proj, a, bpt, offset){
+  const dx=bpt[0]-a[0], dy=bpt[1]-a[1], len=Math.hypot(dx,dy)||1;
+  const nx=-dy/len, ny=dx/len;
+  const mx=(a[0]+bpt[0])/2 + nx*offset, my=(a[1]+bpt[1])/2 + ny*offset;
+  const [x0,y0]=proj(a[0],a[1]), [cx,cy]=proj(mx,my), [x1,y1]=proj(bpt[0],bpt[1]);
+  return `M${x0.toFixed(1)} ${y0.toFixed(1)} Q${cx.toFixed(1)} ${cy.toFixed(1)} ${x1.toFixed(1)} ${y1.toFixed(1)}`;
+}
+
+function renderEgypt(){
+  const b=EGYPT.bbox, W=360,H=232, proj=projector(b,W,H);
+  let routes='', stns={};
+  EGYPT.cables.forEach((c,i)=>{
+    const col=CBL_COL[c.id]||'#8e9aa0', med=EGYPT.stn[c.med], rs=EGYPT.stn[c.rs];
+    const off=0.14 + i*0.055;
+    routes += `<path d="${bowPath(proj,med,rs,off)}" fill="none" stroke="${col}" stroke-width="1.7" opacity=".92" stroke-linecap="round"/>`;
+    routes += `<path d="${bowPath(proj,med,rs,-off)}" fill="none" stroke="${col}" stroke-width="1.4" stroke-dasharray="4 3" opacity=".78" stroke-linecap="round"/>`;
+    stns[c.med]=med; stns[c.rs]=rs;
+  });
+  let dots='';
+  Object.keys(stns).forEach(nm=>{
+    const [x,y]=proj(stns[nm][0],stns[nm][1]);
+    dots += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.6" fill="#fff" stroke="#0a0313" stroke-width=".7"/>`;
+    dots += `<text x="${(x+4).toFixed(1)}" y="${(y+2.6).toFixed(1)}" font-family="'IBM Plex Mono',monospace" font-size="7" fill="rgba(240,236,247,.85)">${nm}</text>`;
+  });
+  const svg=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+    <path d="${landPath(proj,b)}" fill="rgba(120,88,175,.22)" stroke="rgba(170,125,225,.38)" stroke-width=".5"/>
+    ${routes}${dots}</svg>`;
+  const rows = EGYPT.cables.map(c=>{
+    const col=CBL_COL[c.id]||'#8e9aa0', p=stMeta(c.p), pr=stMeta(c.prot);
+    return `<div class="ecbl"><span class="cdot" style="background:${col};box-shadow:0 0 6px ${col}"></span>
+      <span class="nm">${c.name}</span>
+      <span class="pp"><b>Primary</b> <span style="color:${p.c}">${p.t}</span></span>
+      <span class="pp"><b>Protect</b> <span style="color:${pr.c}">${pr.t}</span></span></div>`;
+  }).join('');
+  $('chokeBody').innerHTML =
+    `<div class="choke-blurb">${EGYPT.blurb}</div>
+     <div class="choke-map">${svg}</div>
+     <div class="choke-legend">
+       <span><i style="background:#cfc3e8"></i>Primary</span>
+       <span><i style="height:0;border-top:2px dashed #cfc3e8;background:none"></i>Protection</span>
+       <span><i style="background:#fff;border-radius:50%;width:7px;height:7px"></i>Landing station</span>
+     </div>
+     <div class="choke-cables egypt">${rows}</div>`;
+}
+
+function renderSeaChoke(key){
+  const cfg=SEA_CHOKES[key], b=cfg.bbox, W=360,H=232, proj=projector(b,W,H);
+  const ids=Object.keys(cfg.cables);
+  let routes='';
+  ids.forEach(id=>{
+    const c=cableById[id]; if(!c) return;
+    const col=CBL_COL[id]||'#8e9aa0';
+    routePaths(c,proj,b,1.4).forEach(d=>{
+      routes += `<path d="${d}" fill="none" stroke="${col}" stroke-width="1.7" opacity=".9" stroke-linejoin="round" stroke-linecap="round"/>`;
+    });
+  });
+  let dots=''; const seen=new Set();
+  ids.forEach(id=>{ const c=cableById[id]; if(!c) return;
+    c.landings.forEach(l=>{
+      if(!inBox(l.lon,l.lat,b,0.1)) return;
+      const k=l.station+'|'+l.cc; if(seen.has(k)) return; seen.add(k);
+      const [x,y]=proj(l.lon,l.lat);
+      const home=COUNTRIES[l.cc]&&COUNTRIES[l.cc].home;
+      dots += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5" fill="${home?'#ff375e':'#fff'}" stroke="#0a0313" stroke-width=".7"/>`;
+      dots += `<text x="${(x+4).toFixed(1)}" y="${(y+2.5).toFixed(1)}" font-family="'IBM Plex Mono',monospace" font-size="6.6" fill="rgba(240,236,247,.8)">${l.station}</text>`;
+    });
+  });
+  const svg=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+    <path d="${landPath(proj,b)}" fill="rgba(120,88,175,.22)" stroke="rgba(170,125,225,.38)" stroke-width=".5"/>
+    ${routes}${dots}</svg>`;
+  const rows = ids.map(id=>{
+    const c=cableById[id], col=CBL_COL[id]||'#8e9aa0', st=stMeta(cfg.cables[id]);
+    return `<div class="ecbl"><span class="cdot" style="background:${col};box-shadow:0 0 6px ${col}"></span>
+      <span class="nm">${c?c.name:id}</span>
+      <span class="pp"><b>Status</b> <span style="color:${st.c}">${st.t}</span></span></div>`;
+  }).join('');
+  $('chokeBody').innerHTML =
+    `<div class="choke-blurb">${cfg.blurb}</div>
+     <div class="choke-map">${svg}</div>
+     <div class="choke-legend">
+       <span>Coloured by system</span>
+       <span><i style="background:#fff;border-radius:50%;width:7px;height:7px"></i>Landing station</span>
+     </div>
+     <div class="choke-cables">${rows}</div>`;
+}
+
+function renderChoke(key){
+  currentChokeKey=key;
+  if(key==='egypt') renderEgypt(); else renderSeaChoke(key);
+}
+$('chokeTabs').addEventListener('click', e=>{
+  const btn = e.target.closest('.tab'); if(!btn) return;
+  [...e.currentTarget.children].forEach(x=>x.classList.toggle('active', x===btn));
+  renderChoke(btn.dataset.k);
+});
+renderFaults();
+renderChoke('egypt');
+window.__refreshChoke = ()=>renderChoke(currentChokeKey);
+
+loadGeo();
+loadRealRoutes();
+</script>
+</body>
+</html>
